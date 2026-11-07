@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] The `/bridge` skill starts the daemon (or reuses a running one) and opens the browser
-- [ ] The UI shell renders in the dark theme from the design tokens
-- [ ] An end-to-end test drives the public API with a fake agent adapter and temporary storage, and passes in the default test run
-- [ ] The test pattern is documented so later tickets reuse it
+- [x] The `/bridge` skill starts the daemon (or reuses a running one) and opens the browser
+- [x] The UI shell renders in the dark theme from the design tokens
+- [x] An end-to-end test drives the public API with a fake agent adapter and temporary storage, and passes in the default test run
+- [x] The test pattern is documented so later tickets reuse it
