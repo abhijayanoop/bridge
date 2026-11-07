@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Permission request, analyst card, empty states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0A0A}
+*{box-sizing:border-box}
+a{color:#EDEDED}a:hover{color:#FFFFFF}
+:focus-visible{outline:2px solid #EDEDED;outline-offset:2px}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bav-fig,.bav-body,.bav-eyes-in,.bav-halo{transform-box:fill-box;transform-origin:center}
+.bav-halo{opacity:0}
+@keyframes bav-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes bav-blink{0%,88%,100%{transform:scaleY(1)}92%{transform:scaleY(.12)}}
+@keyframes bav-halo{0%{transform:scale(.95);opacity:.4}100%{transform:scale(1.45);opacity:0}}
+@keyframes bav-happy{0%,8%{transform:scaleY(1)}14%,34%{transform:scaleY(.3)}42%,100%{transform:scaleY(1)}}
+@keyframes bav-hop{0%,8%{transform:translateY(0)}16%{transform:translateY(-6px)}26%,100%{transform:translateY(0)}}
+.s-idle .bav-body{animation:bav-breathe 4s ease-in-out infinite}
+.s-idle .bav-eyes-in{animation:bav-blink 5s ease-in-out infinite}
+.s-listening .bav-halo{animation:bav-halo 1.8s ease-out infinite}
+.s-blocked .bav-fig{opacity:.4;filter:saturate(.5)}
+.s-done .bav-fig{animation:bav-hop 4s ease-in-out infinite}
+.s-done .bav-eyes-in{animation:bav-happy 4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.s-listening .bav-halo{opacity:.22;transform:scale(1.2)}}
+</style>
+</helmet>
+<main style="display: flex; flex-direction: column; gap: 64px; width: 100%; padding: 56px clamp(24px, 5vw, 64px) 80px; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.5">
+
+<section aria-labelledby="pr-h" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 4px"><h2 id="pr-h" style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.3px">&lt;PermissionRequest&gt;</h2><p style="margin: 0; font-size: 14px; color: #A1A1A1; max-width: 760px">One component, three variants: a card in the Inbox, an inline banner on boards and drawers, and a terminal block in the live terminal. Every request says who, what, why and for how long.</p></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="4">
+<article aria-labelledby="{{c.hid}}" style="display: flex; gap: 14px; padding: 18px; border-radius: 16px; background: #141414; border: 1px solid rgba(255,255,255,0.08); opacity: {{c.op}}">
+<dc-import name="Avatar" agent="{{c.agent}}" size="40" state="{{c.state}}" hint-size="40px,40px"></dc-import>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: #A1A1A1">
+<span style="font-size: 13px; font-weight: 600; color: #EDEDED">{{c.name}}</span>
+<span style="display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); color: #EDEDED"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" class="ic"><path d="{{c.icon}}"></path></svg>{{c.kind}}</span>
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace">{{c.ticket}}</span>
+<span style="flex: 1"></span><span>{{c.variantLabel}}</span>
+</div>
+<h3 id="{{c.hid}}" style="margin: 0; font-size: 15px; line-height: 21px; font-weight: 600">{{c.what}}</h3>
+<p style="margin: 0; font-size: 13px; line-height: 19px; color: #A1A1A1"><span style="color: #EDEDED; font-weight: 500">Why · </span>{{c.why}}</p>
+<div style="display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{c.facts}}" as="f" hint-placeholder-count="2"><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; height: 22px; padding: 0 7px; border-radius: 6px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); display: inline-flex; align-items: center; color: #EDEDED">{{f.v}}</span></sc-for></div>
+<sc-if value="{{c.pending}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #EDEDED; color: #0A0A0A; font: inherit; font-size: 13px; font-weight: 600">Approve</button>
+<button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 600">Deny</button>
+<button type="button" style="height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 13px; font-weight: 600">Reply</button>
+<span style="flex: 1"></span>
+<div role="radiogroup" aria-label="Approval scope" style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08)">
+<button type="button" role="radio" aria-checked="true" style="height: 24px; padding: 0 9px; border-radius: 6px; border: 0; background: #262626; color: #EDEDED; font: inherit; font-size: 11px; font-weight: 500">Once</button>
+<button type="button" role="radio" aria-checked="false" style="height: 24px; padding: 0 9px; border-radius: 6px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 11px; font-weight: 500">Ticket</button>
+<button type="button" role="radio" aria-checked="false" style="height: 24px; padding: 0 9px; border-radius: 6px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 11px; font-weight: 500">Project</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{c.resolved}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; align-items: center; gap: 8px; height: 32px; font-size: 13px">
+<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic" style="stroke-width: 2"><path d="{{c.resIcon}}"></path></svg>
+<span style="color: #EDEDED; font-weight: 500">{{c.resText}}</span><span style="color: #8A8A8A">{{c.resMeta}}</span>
+<span style="flex: 1"></span>
+<button type="button" style="height: 28px; padding: 0 10px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 12px; font-weight: 600">Undo</button>
+</div>
+</sc-if>
+</div>
+</article>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; font-weight: 500; color: #8A8A8A">Inline variant · board headers, the agent drawer, notifications</span>
+<sc-for list="{{inline}}" as="r" hint-placeholder-count="4">
+<div role="group" aria-label="{{r.aria}}" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px 6px 12px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Avatar" agent="{{r.agent}}" size="20" state="listening" hint-size="20px,20px"></dc-import>
+<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic" style="color: #A1A1A1"><path d="{{r.icon}}"></path></svg>
+<span style="font-size: 13px; white-space: nowrap"><span style="font-weight: 600">{{r.name}}</span> wants <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px">{{r.target}}</span></span>
+<span style="flex: 1; min-width: 0; font-size: 12px; color: #A1A1A1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.why}}</span>
+<button type="button" style="height: 28px; padding: 0 10px; border-radius: 7px; border: 0; background: #EDEDED; color: #0A0A0A; font: inherit; font-size: 12px; font-weight: 600">Approve</button>
+<button type="button" style="height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 12px; font-weight: 600">Deny</button>
+<button type="button" aria-label="{{r.replyLabel}}" style="width: 28px; height: 28px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; display: grid; place-items: center"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M10 8L5 12.5 10 17M5.5 12.5H14a5 5 0 0 1 5 5V19"></path></svg></button>
+</div>
+</sc-for>
+</div>
+</section>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 32px; align-items: start">
+<section aria-labelledby="an-h" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 4px"><h2 id="an-h" style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.3px">Analyst agent</h2><p style="margin: 0; font-size: 14px; color: #A1A1A1">Answers questions about usage and data. It can never write, and it never sees who a customer is.</p></div>
+<article aria-labelledby="sol-h" style="display: flex; flex-direction: column; gap: 18px; padding: 22px; border-radius: 16px; background: #141414; border: 1px solid rgba(255,255,255,0.08)">
+<div style="display: flex; align-items: center; gap: 16px">
+<dc-import name="Avatar" agent="sol" size="64" state="done" hint-size="64px,64px"></dc-import>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+<h3 id="sol-h" style="margin: 0; font-size: 17px; font-weight: 600">Sol <span style="font-weight: 400; color: #A1A1A1; font-size: 14px">· Analyst</span></h3>
+<span style="display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 9999px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.24); font-size: 12px; font-weight: 600">
+<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" class="ic"><path d="M7 10.5h10a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2zM8 10.5V8a4 4 0 0 1 8 0v2.5"></path></svg>Read-only
+<span aria-hidden="true" style="width: 1px; height: 12px; background: rgba(255,255,255,0.18)"></span>
+<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" class="ic"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4.5 9 6-.3.8-1.2 2.3-2.7 3.6M6.4 7.6C4.6 8.9 3.4 10.7 3 12c.6 1.7 4 6 9 6 1.6 0 3-.4 4.3-1"></path></svg>Names masked</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 12px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.06)"><span style="font-size: 12px; font-weight: 600">Can</span><span style="font-size: 12px; color: #A1A1A1">Query the analytics replica with a read-only role</span><span style="font-size: 12px; color: #A1A1A1">Read logs and metrics</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 12px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.06)"><span style="font-size: 12px; font-weight: 600">Can't</span><span style="font-size: 12px; color: #A1A1A1">Write files, push, or open PRs</span><span style="font-size: 12px; color: #A1A1A1">See names, emails or payment details</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; color: #8A8A8A">Latest result · BRG-110 · sample rows</span>
+<div style="border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; font-size: 12px">
+<div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr; padding: 8px 12px; background: #1B1B1B; color: #A1A1A1; font-weight: 500"><span>Customer</span><span>Pattern</span><span style="text-align: right">Invoices / yr</span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr; padding: 8px 12px; border-top: 1px solid rgba(255,255,255,0.06)"><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; color: #A1A1A1">{{r.c}}</span><span>{{r.p}}</span><span style="text-align: right; font-family: 'JetBrains Mono', ui-monospace, monospace">{{r.n}}</span></div>
+</sc-for>
+</div>
+</div>
+</article>
+</section>
+
+<section aria-labelledby="em-h" style="display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 4px"><h2 id="em-h" style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.3px">Empty states</h2><p style="margin: 0; font-size: 14px; color: #A1A1A1">Calm, idle avatars and one next step. No illustrations beyond the agents themselves.</p></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{empties}}" as="e" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 28px 20px 24px; border-radius: 16px; border: 1px dashed rgba(255,255,255,0.14); min-height: 236px; justify-content: center">
+<div style="display: flex; gap: 8px; align-items: center">
+<sc-for list="{{e.agents}}" as="a" hint-placeholder-count="3">
+<dc-import name="Avatar" agent="{{a.id}}" size="32" state="{{a.state}}" lead="false" hint-size="32px,32px"></dc-import>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 15px; font-weight: 600">{{e.title}}</span><span style="font-size: 13px; color: #A1A1A1; max-width: 260px">{{e.body}}</span></div>
+<sc-if value="{{e.cta}}" hint-placeholder-val="{{ true }}"><a href="{{e.href}}" style="display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; text-decoration: none; font-size: 13px; font-weight: 600">{{e.cta}}</a></sc-if>
+</div>
+</sc-for>
+</div>
+</section>
+</div>
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const I = {
+      network: 'M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17zM3.5 12h17M12 3.5c2.5 2.6 3.5 5.5 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.5-3.5-8.5s1-5.9 3.5-8.5z',
+      secret: 'M8 11.5a3.5 3.5 0 1 1 0 7a3.5 3.5 0 1 1 0-7zM10.5 12.5L19 4M16 7l2.5 2.5M14 9l2 2',
+      push: 'M12 16V5M7 10l5-5 5 5M5 19h14',
+      database: 'M12 3.2c3.9 0 7 1.3 7 2.8s-3.1 2.8-7 2.8-7-1.3-7-2.8 3.1-2.8 7-2.8zM5 6v12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8'
+    };
+    const card = function (o, i) {
+      return {
+        hid: 'perm-' + i, agent: o.agent, name: o.name, state: o.res ? 'idle' : 'listening', kind: o.kind, icon: I[o.icon], ticket: o.ticket,
+        what: o.what, why: o.why, facts: o.facts.map(function (v) { return { v: v }; }),
+        variantLabel: o.res ? (o.res === 'approved' ? 'Approved' : 'Denied') : 'Pending',
+        pending: !o.res, resolved: !!o.res, op: o.res ? 0.72 : 1,
+        resIcon: o.res === 'approved' ? 'M5 12.5l4.5 4.5L19 7.5' : 'M6 6l12 12M18 6L6 18',
+        resText: o.res === 'approved' ? 'Approved for this ticket' : 'Denied', resMeta: o.resMeta || ''
+      };
+    };
+    const cards = [
+      { agent: 'ember', name: 'Ember', kind: 'Network domain', icon: 'network', ticket: 'BRG-102', what: 'Reach registry.npmjs.org', why: 'Install date-fns-tz for timezone-safe month-end maths.', facts: ['registry.npmjs.org:443', 'HTTPS', 'sandbox ember-7f2a'] },
+      { agent: 'flare', name: 'Flare', kind: 'Secret', icon: 'secret', ticket: 'BRG-107', what: 'Use STRIPE_TEST_SECRET_KEY', why: 'Run the payment integration test in Stripe test mode.', facts: ['env var', 'masked in output', 'revoked on stop'] },
+      { agent: 'tide', name: 'Tide', kind: 'Git push', icon: 'push', ticket: 'BRG-104', what: 'Push brg-104-schedule-editor to origin', why: 'Open a draft PR for an early layout review.', facts: ['origin', '3 commits', 'no force push'], res: 'approved', resMeta: '· by you, 2m ago' },
+      { agent: 'sol', name: 'Sol', kind: 'Database', icon: 'database', ticket: 'BRG-110', what: 'Read the production primary', why: 'The replica lags by a day; wanted today’s numbers.', facts: ['prod-primary', 'read-only', 'PII masked'], res: 'denied', resMeta: '· use the replica instead' }
+    ].map(card);
+    const inline = [
+      ['ember', 'Ember', 'network', 'registry.npmjs.org', 'Install date-fns-tz for BRG-102'],
+      ['flare', 'Flare', 'secret', 'STRIPE_TEST_SECRET_KEY', 'Payment integration test, test mode only'],
+      ['tide', 'Tide', 'push', 'git push origin', 'Draft PR for the schedule editor'],
+      ['sol', 'Sol', 'database', 'analytics-replica', 'Count customers by invoicing frequency']
+    ].map(function (r) { return { agent: r[0], name: r[1], icon: I[r[2]], target: r[3], why: r[4], aria: r[1] + ' wants ' + r[3], replyLabel: 'Reply to ' + r[1] }; });
+    return {
+      cards: cards, inline: inline,
+      rows: [{ c: 'Customer ••••4f2a', p: 'Monthly', n: '12' }, { c: 'Customer ••••91c0', p: 'Weekly', n: '52' }, { c: 'Customer ••••07be', p: 'Quarterly', n: '4' }],
+      empties: [
+        { title: 'Nothing needs you', body: 'Agents ask here when they need access, an answer or a merge.', agents: [{ id: 'ember', state: 'idle' }, { id: 'tide', state: 'idle' }, { id: 'flare', state: 'idle' }], cta: '', href: '#' },
+        { title: 'No tickets yet', body: 'Describe a feature. Atlas drafts a spec for you to approve first.', agents: [{ id: 'atlas', state: 'idle' }], cta: 'New feature', href: 'Plan.dc.html' },
+        { title: 'No workers running', body: 'Workers start once you approve tickets. Your cap is 5.', agents: [{ id: 'hazel', state: 'blocked' }, { id: 'rosa', state: 'blocked' }], cta: 'Open plan', href: 'Plan.dc.html' },
+        { title: 'Nothing to review', body: 'Finished tickets land here with a Standards and Spec review.', agents: [{ id: 'rosa', state: 'idle' }], cta: '', href: '#' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

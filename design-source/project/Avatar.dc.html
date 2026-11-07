@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent avatar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="bav s-{{state}}" style="position: relative; display: inline-flex; flex: none; width: {{px}}; height: {{px}}; color: #EDEDED; font-family: Inter, system-ui, sans-serif">
+<sc-if value="{{lead}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: {{ringInset}}; border-radius: 9999px; border: {{ringW}} solid {{color}}; opacity: 0.55"></div>
+</sc-if>
+<svg viewBox="0 0 100 100" width="100%" height="100%" role="img" aria-label="{{aria}}" style="overflow: visible; display: block">
+<circle class="bav-halo" cx="50" cy="50" r="46" style="fill: {{color}}"></circle>
+<g class="bav-fig">
+<path class="bav-body" d="{{d}}" style="fill: {{color}}; stroke: {{color}}; stroke-width: {{strokeW}}; stroke-linejoin: round"></path>
+<g transform="{{eyeT}}">
+<g class="bav-eyes-in">
+<path d="{{eyeL}}" style="fill: none; stroke: #121212; stroke-width: 6.5; stroke-linecap: round; stroke-linejoin: round"></path>
+<path d="{{eyeR}}" style="fill: none; stroke: #121212; stroke-width: 6.5; stroke-linecap: round; stroke-linejoin: round"></path>
+</g>
+</g>
+</g>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"agent":{"editor":"enum","options":["atlas","ember","tide","flare","rosa","iris","sol","hazel"],"default":"ember"},"shape":{"editor":"enum","options":["circle","egg","squircle","pill","triangle","hexagon","cloud","teardrop"],"default":"egg"},"color":{"editor":"color","options":["#0A84FF","#FF6A00","#00B8A5","#FF2D44","#FF2D9B","#8F5BFF","#FF9500","#8F5E3B"],"default":"#FF6A00"},"size":{"editor":"int","min":16,"max":160,"default":96},"state":{"editor":"enum","options":["idle","planning","exploring","implementing","debugging","composing","listening","blocked","done"],"default":"idle"},"lead":{"editor":"boolean","default":false},"$preview":{"width":96,"height":96}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const REG = {
+      atlas: { shape: 'circle', color: '#0A84FF', label: 'Atlas', lead: true },
+      ember: { shape: 'egg', color: '#FF6A00', label: 'Ember' },
+      tide: { shape: 'squircle', color: '#00B8A5', label: 'Tide' },
+      flare: { shape: 'pill', color: '#FF2D44', label: 'Flare' },
+      rosa: { shape: 'triangle', color: '#FF2D9B', label: 'Rosa' },
+      iris: { shape: 'hexagon', color: '#8F5BFF', label: 'Iris' },
+      sol: { shape: 'cloud', color: '#FF9500', label: 'Sol' },
+      hazel: { shape: 'teardrop', color: '#8F5E3B', label: 'Hazel' }
+    };
+    const SHAPES = {
+      circle: { d: 'M50 6A44 44 0 1 1 50 94A44 44 0 1 1 50 6Z', e: [45, 47, 1] },
+      egg: { d: 'M52 9C76 9 93 28 92 53C91 77 72 92 50 91C27 90 9 78 8 57C7 35 27 9 52 9Z', e: [44, 50, 1] },
+      squircle: { d: 'M50 8C82 8 92 18 92 50C92 82 82 92 50 92C18 92 8 82 8 50C8 18 18 8 50 8Z', e: [56, 40, 1] },
+      pill: { d: 'M30 26H70A24 24 0 0 1 70 74H30A24 24 0 0 1 30 26Z', e: [47, 51, 0.85] },
+      triangle: { d: 'M42 18Q50 4 58 18L88 72Q96 88 78 88H22Q4 88 12 72Z', e: [52, 63, 0.75] },
+      hexagon: { d: 'M50 12L82.9 31L82.9 69L50 88L17.1 69L17.1 31Z', e: [52, 45, 1], stroke: 12 },
+      cloud: { d: 'M30 86A16 16 0 0 1 20 57A18 18 0 0 1 40 30A20 20 0 0 1 74 34A16 16 0 0 1 84 64A15 15 0 0 1 66 86A14 14 0 0 1 46 88A14 14 0 0 1 30 86Z', e: [47, 62, 0.9] },
+      teardrop: { d: 'M50 7C58 19 82 40 82 62A32 32 0 0 1 18 62C18 40 42 19 50 7Z', e: [46, 66, 0.9] }
+    };
+    const LABELS = { idle: 'Idle', planning: 'Planning', exploring: 'Exploring', implementing: 'Implementing', debugging: 'Debugging', composing: 'Writing PR', listening: 'Waiting for you', blocked: 'Blocked', done: 'Done' };
+    const reg = REG[this.props.agent] || REG.ember;
+    const shapeKey = this.props.shape || reg.shape;
+    const shape = SHAPES[shapeKey] || SHAPES.circle;
+    const color = this.props.color || reg.color;
+    const state = LABELS[this.props.state] ? this.props.state : 'idle';
+    const px = Number(this.props.size) || 96;
+    const lead = this.props.lead === true || this.props.lead === 'true' || (this.props.lead == null && !!reg.lead);
+    let eyeL = 'M-13 7L-6 -6';
+    let eyeR = 'M5 -6L9 8';
+    let dy = 0;
+    if (state === 'listening') { eyeL = 'M-9 -9L-9 8'; eyeR = 'M8 -9L8 8'; }
+    if (state === 'blocked') { eyeL = 'M-14 0L-7 6'; eyeR = 'M5 6L12 0'; dy = 6; }
+    const e = shape.e;
+    return {
+      px: px + 'px',
+      d: shape.d,
+      color: color,
+      strokeW: shape.stroke || 0,
+      eyeT: 'translate(' + e[0] + ' ' + (e[1] + dy) + ') scale(' + e[2] + ')',
+      eyeL: eyeL,
+      eyeR: eyeR,
+      state: state,
+      lead: lead,
+      ringInset: '-' + Math.max(3, Math.round(px * 0.13)) + 'px',
+      ringW: px >= 64 ? '2px' : '1.5px',
+      aria: (this.props.shape ? shapeKey : reg.label) + ' avatar, ' + LABELS[state]
+    };
+  }
+}
+</script>
+</body>
+</html>

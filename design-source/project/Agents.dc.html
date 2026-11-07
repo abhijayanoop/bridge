@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0A0A}
+*{box-sizing:border-box}
+a{color:#EDEDED}a:hover{color:#FFFFFF}
+:focus-visible{outline:2px solid #EDEDED;outline-offset:2px}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bav-fig,.bav-body,.bav-eyes-in,.bav-halo{transform-box:fill-box;transform-origin:center}
+.bav-halo{opacity:0}
+@keyframes bav-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes bav-blink{0%,88%,100%{transform:scaleY(1)}92%{transform:scaleY(.12)}}
+@keyframes bav-morph{0%,100%{transform:scale(1,1)}33%{transform:scale(1.05,.95)}66%{transform:scale(.96,1.04)}}
+@keyframes bav-drift{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes bav-scan{0%,100%{transform:translateX(-7px)}50%{transform:translateX(7px)}}
+@keyframes bav-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes bav-wobble{0%,100%{transform:rotate(0)}25%{transform:rotate(-5deg)}75%{transform:rotate(5deg)}}
+@keyframes bav-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
+@keyframes bav-halo{0%{transform:scale(.95);opacity:.4}100%{transform:scale(1.45);opacity:0}}
+@keyframes bav-happy{0%,8%{transform:scaleY(1)}14%,34%{transform:scaleY(.3)}42%,100%{transform:scaleY(1)}}
+@keyframes bav-hop{0%,8%{transform:translateY(0)}16%{transform:translateY(-6px)}26%,100%{transform:translateY(0)}}
+@keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+.s-idle .bav-body{animation:bav-breathe 4s ease-in-out infinite}
+.s-idle .bav-eyes-in{animation:bav-blink 5s ease-in-out infinite}
+.s-planning .bav-body{animation:bav-morph 3.2s ease-in-out infinite}
+.s-planning .bav-eyes-in{animation:bav-drift 3.2s ease-in-out infinite}
+.s-exploring .bav-eyes-in{animation:bav-scan 1.6s ease-in-out infinite}
+.s-implementing .bav-fig{animation:bav-bob .6s ease-in-out infinite}
+.s-implementing .bav-eyes-in{transform:scaleY(.8)}
+.s-debugging .bav-fig{animation:bav-wobble .8s ease-in-out infinite}
+.s-debugging .bav-eyes-in{transform:scaleY(.4)}
+.s-composing .bav-fig{animation:bav-nod 2.4s ease-in-out infinite}
+.s-composing .bav-eyes-in{transform:translateY(6px)}
+.s-listening .bav-halo{animation:bav-halo 1.8s ease-out infinite}
+.s-blocked .bav-fig{opacity:.4;filter:saturate(.5)}
+.s-done .bav-fig{animation:bav-hop 4s ease-in-out infinite}
+.s-done .bav-eyes-in{animation:bav-happy 4s ease-in-out infinite}
+.orb-dot{opacity:.22}
+@keyframes orb{0%,100%{opacity:.18}35%{opacity:1}}
+@keyframes orb-pulse{0%,100%{opacity:.25}50%{opacity:.95}}
+.o-spin .orb-dot{animation:orb 1.1s ease-in-out infinite}
+.o-spin .orb-dot.c{animation:none;opacity:.6}
+.o-pulse .orb-dot{animation:orb-pulse 1.6s ease-in-out infinite}
+.o-still .orb-dot.c{opacity:.8}
+.caret{animation:caret 1s steps(1) infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.s-listening .bav-halo{opacity:.22;transform:scale(1.2)}.o-spin .orb-dot,.o-pulse .orb-dot{opacity:.6}}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.5">
+<div style="flex: 1 1 232px; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Sidebar" active="agents" hint-size="232px,900px"></dc-import>
+</div>
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<dc-import name="TopBar" section="Agents" hint-size="100%,56px"></dc-import>
+<div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+
+<main style="flex: 999 1 460px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 24px 24px 32px 32px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px">
+<div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.4px">Agents</h1>
+<span style="font-size: 13px; color: #A1A1A1">8 agents · 4 of 5 worker slots in use</span>
+</div>
+<div role="tablist" aria-label="Filter agents" style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: #141414; border: 1px solid rgba(255,255,255,0.08)">
+<button type="button" role="tab" aria-selected="true" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: #262626; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 500">All 8</button>
+<button type="button" role="tab" aria-selected="false" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 13px; font-weight: 500">Working 5</button>
+<button type="button" role="tab" aria-selected="false" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 13px; font-weight: 500">Need you 1</button>
+</div>
+</div>
+<div role="list" style="display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{agents}}" as="a" hint-placeholder-count="8">
+<div role="listitem" style="display: flex">
+<button type="button" aria-pressed="{{a.selected}}" aria-label="{{a.aria}}" style="display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid {{a.border}}; background: {{a.bg}}; color: #EDEDED; font: inherit; text-align: left; cursor: pointer">
+<span style="position: relative; display: inline-flex; width: 40px; height: 40px; flex: none"><dc-import name="Avatar" agent="{{a.id}}" size="40" state="{{a.state}}" hint-size="40px,40px"></dc-import></span>
+<span style="flex: 0 0 180px; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600">{{a.name}}<sc-if value="{{a.readonly}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.14); font-size: 10px; font-weight: 500; color: #EDEDED"><svg viewBox="0 0 24 24" width="10" height="10" aria-hidden="true" class="ic" style="stroke-width: 2"><path d="M7 10.5h10a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2zM8 10.5V8a4 4 0 0 1 8 0v2.5"></path></svg>Read-only</span></sc-if></span>
+<span style="font-size: 12px; color: #A1A1A1">{{a.role}}</span>
+</span>
+<span style="flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #8A8A8A">{{a.ticket}}</span>
+<span style="font-size: 13px; color: #EDEDED; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.live}}</span>
+</span>
+<span style="flex: none; display: inline-flex; align-items: center; gap: 8px; width: 150px; justify-content: flex-end">
+<dc-import name="Orb" agent="{{a.id}}" size="20" state="{{a.state}}" hint-size="20px,20px"></dc-import>
+<span style="font-size: 12px; font-weight: 500; color: #A1A1A1">{{a.stateLabel}}</span>
+</span>
+</button>
+</div>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8A8A8A">The reviewer, researcher and analyst run as the lead's subagents and don't use worker slots.</p>
+</main>
+
+<aside aria-label="Ember details" style="flex: 1 1 540px; max-width: 600px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px; background: #141414; border-left: 1px solid rgba(255,255,255,0.08)">
+<div style="display: flex; align-items: center; gap: 12px">
+<dc-import name="Avatar" agent="ember" size="40" state="implementing" hint-size="40px,40px"></dc-import>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">Ember <span style="font-weight: 400; color: #A1A1A1; font-size: 13px">· Backend worker</span></h2>
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A">sandbox ember-7f2a · network off · branch brg-102-scheduler</span>
+</div>
+<button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 600"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"></path></svg>Stop</button>
+<button type="button" aria-label="Close drawer" style="width: 32px; height: 32px; border-radius: 8px; border: 0; background: transparent; color: #A1A1A1; display: grid; place-items: center"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="ic"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A1A1A1">
+<dc-import name="Orb" agent="ember" size="20" state="implementing" hint-size="20px,20px"></dc-import>
+<span style="color: #EDEDED; font-weight: 500">Implementing</span><span>BRG-102 · Scheduler job · 18m</span>
+</div>
+<div role="tablist" aria-label="Agent views" style="display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); align-self: flex-start">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+<button type="button" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: {{t.bg}}; color: {{t.fg}}; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer">{{t.label}}</button>
+</sc-for>
+</div>
+
+<sc-if value="{{isTerminal}}" hint-placeholder-val="{{ true }}">
+<div role="log" aria-label="Ember terminal" style="flex: 1; min-height: 480px; display: flex; flex-direction: column; border-radius: 12px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A">
+<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" class="ic"><path d="M6 4.5h12a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3zM7 9.5l3 2.5-3 2.5M12.5 15H17"></path></svg>
+<span style="flex: 1">ember@sandbox:~/tally-web</span><span>live</span>
+</div>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 20px; overflow: auto">
+<sc-for list="{{lines}}" as="l" hint-placeholder-count="12">
+<span style="color: {{l.color}}; padding-left: {{l.indent}}; white-space: pre-wrap"><span style="color: {{l.pColor}}">{{l.prefix}}</span>{{l.text}}<span style="color: #8A8A8A">{{l.meta}}</span></span>
+</sc-for>
+<div style="margin: 10px 0 6px; padding: 12px; border-radius: 10px; background: #141414; border: 1px solid rgba(255,255,255,0.08); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A1A1A1"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" class="ic"><path d="M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17zM3.5 12h17M12 3.5c2.5 2.6 3.5 5.5 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.5-3.5-8.5s1-5.9 3.5-8.5z"></path></svg><span>Answered · question</span><span style="flex: 1"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">12m ago</span></div>
+<span style="color: #EDEDED">Should paused schedules catch up on missed runs when resumed?</span>
+<span style="color: #A1A1A1">You: No. Skip missed runs and issue the next one on schedule.</span>
+</div>
+<span style="color: #A1A1A1">$ <span style="color: #EDEDED">pnpm add date-fns-tz@3.2.0</span></span>
+<div role="alertdialog" aria-labelledby="perm-t" style="margin: 8px 0 4px; padding: 14px; border-radius: 10px; background: #141414; border: 1px solid rgba(255,255,255,0.18); font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 19px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A1A1A1"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" class="ic" style="color: #EDEDED"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8v3.6M8 11h.01"></path></svg><span style="color: #EDEDED; font-weight: 600">Permission · network domain</span><span style="flex: 1"></span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px">waiting 0:42</span></div>
+<span id="perm-t" style="font-size: 14px; font-weight: 500; color: #EDEDED">Allow Ember to reach <span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; padding: 1px 6px; border-radius: 6px; background: #1B1B1B; border: 1px solid rgba(255,255,255,0.08)">registry.npmjs.org:443</span>?</span>
+<span style="color: #A1A1A1">Why: install date-fns-tz for timezone-safe month-end maths in BRG-102. The sandbox has no network by default.</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 0; background: #EDEDED; color: #0A0A0A; font: inherit; font-size: 13px; font-weight: 600">Allow once<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; opacity: 0.6">Y</kbd></button>
+<button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 600">Allow for project<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; color: #8A8A8A">A</kbd></button>
+<button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 600">Deny<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; color: #8A8A8A">N</kbd></button>
+<span style="flex: 1"></span>
+<button type="button" style="height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 13px; font-weight: 600">Reply</button>
+</div>
+</div>
+<span style="color: #8A8A8A">paused · waiting for permission<span class="caret" style="color: #EDEDED"> ▍</span></span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{isTasks}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 480px; display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{tasks}}" as="t" hint-placeholder-count="4">
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 10px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08)">
+<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class="ic" style="margin-top: 3px; color: {{t.color}}"><circle cx="8" cy="8" r="6" style="stroke-dasharray: {{t.dash}}"></circle><path d="M5.2 8.2l2 2 3.6-3.8" style="opacity: {{t.check}}"></path><path d="M8 2a6 6 0 0 1 0 12z" style="fill: currentColor; stroke: none; opacity: {{t.half}}"></path></svg>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: {{t.fg}}">{{t.text}}</span><span style="font-size: 12px; color: #8A8A8A">{{t.meta}}</span></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isMessages}}" hint-placeholder-val="{{ false }}">
+<div style="flex: 1; min-height: 480px; display: flex; flex-direction: column; gap: 12px">
+<sc-for list="{{messages}}" as="m" hint-placeholder-count="3">
+<div style="display: flex; gap: 10px">
+<dc-import name="Avatar" agent="{{m.agent}}" size="20" state="idle" hint-size="20px,20px"></dc-import>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px"><span style="font-weight: 600">{{m.from}}</span> <span style="color: #8A8A8A">{{m.time}}</span></span><span style="font-size: 13px; color: #EDEDED">{{m.text}}</span></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<form style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.14)">
+<label for="send-ember" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Send input to Ember</label>
+<textarea id="send-ember" rows="2" placeholder="Send input to Ember…  / for commands" style="resize: none; border: 0; background: transparent; color: #EDEDED; font: inherit; font-size: 13px; line-height: 20px; outline: none; padding: 2px 4px"></textarea>
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="font-size: 11px; color: #8A8A8A">⏎ send · ⇧⏎ newline · ⌘. stop</span>
+<span style="flex: 1"></span>
+<button type="submit" style="display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; border: 0; background: #EDEDED; color: #0A0A0A; font: inherit; font-size: 13px; font-weight: 600">Send<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M5 12h13M13 7l5 5-5 5"></path></svg></button>
+</div>
+</form>
+</aside>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tab = (this.state && this.state.tab) || 'terminal';
+    const self = this;
+    const LABEL = { idle: 'Idle', planning: 'Planning', exploring: 'Exploring', implementing: 'Implementing', debugging: 'Debugging', composing: 'Writing PR', listening: 'Waiting for you', blocked: 'Blocked', done: 'Done' };
+    const ORB = { idle: 'still', blocked: 'still', done: 'still', listening: 'pulse' };
+    const rows = [
+      ['atlas', 'Atlas', 'Lead engineer', 'BRG-113 · BRG-114', 'Drafting two follow-up tickets from BRG-102', 'planning'],
+      ['ember', 'Ember', 'Backend worker', 'BRG-102', 'Running vitest on src/scheduler', 'implementing'],
+      ['tide', 'Tide', 'Frontend worker', 'BRG-104', 'Reading src/invoices/InvoiceForm.tsx', 'exploring'],
+      ['flare', 'Flare', 'Test worker', 'BRG-107', 'Isolating the leap-year DST failure', 'debugging'],
+      ['hazel', 'Hazel', 'API worker', 'BRG-103 · PR #482', 'Ready to merge. Waiting for your decision', 'listening'],
+      ['rosa', 'Rosa', 'Reviewer', 'BRG-112 · PR #485', 'Writing the standards and spec review', 'composing'],
+      ['iris', 'Iris', 'Researcher', 'BRG-109', 'Timezone report delivered to Atlas', 'idle'],
+      ['sol', 'Sol', 'Analyst · names masked', 'BRG-110', 'Usage analysis finished', 'done']
+    ];
+    const agents = rows.map(function (r) {
+      const sel = r[0] === 'ember';
+      return {
+        id: r[0], name: r[1], role: r[2], ticket: r[3], live: r[4], state: r[5],
+        stateLabel: LABEL[r[5]], orb: ORB[r[5]] || 'spin', readonly: r[0] === 'sol',
+        selected: sel ? 'true' : 'false',
+        bg: sel ? '#1B1B1B' : 'transparent', border: sel ? 'rgba(255,255,255,0.14)' : 'transparent',
+        aria: r[1] + ', ' + r[2] + ', ' + LABEL[r[5]] + ', ' + r[4]
+      };
+    });
+    const tabs = [['terminal', 'Terminal'], ['tasks', 'Tasks 4'], ['messages', 'Messages 3']].map(function (t) {
+      const on = t[0] === tab;
+      return { label: t[1], on: on ? 'true' : 'false', bg: on ? '#1B1B1B' : 'transparent', fg: on ? '#EDEDED' : '#A1A1A1', pick: function () { self.setState({ tab: t[0] }); } };
+    });
+    const C = { cmd: '#EDEDED', out: '#A1A1A1', dim: '#8A8A8A', pass: '#A1A1A1', fail: '#EDEDED', agent: '#EDEDED' };
+    const L = function (k, text, meta, indent) {
+      return {
+        color: C[k], text: text, meta: meta || '', indent: indent || '0',
+        prefix: k === 'cmd' ? '$ ' : (k === 'agent' ? 'ember › ' : (k === 'pass' ? '✓ ' : (k === 'fail' ? '✗ ' : ''))),
+        pColor: k === 'agent' ? '#FF6A00' : (k === 'fail' ? '#EDEDED' : '#8A8A8A')
+      };
+    };
+    const lines = [
+      L('cmd', 'git switch -c brg-102-scheduler'),
+      L('out', "Switched to a new branch 'brg-102-scheduler'"),
+      L('agent', 'Reading src/scheduler/ (6 files)'),
+      L('agent', 'Edit src/scheduler/nextRunDate.ts', '  +24 −3'),
+      L('cmd', 'pnpm vitest run src/scheduler'),
+      L('pass', 'issues an invoice on the schedule day', '  12ms', '12px'),
+      L('pass', 'skips paused schedules', '  4ms', '12px'),
+      L('fail', 'month-end: Jan 31 → Feb 28', '', '12px'),
+      L('dim', 'expected 2027-02-28, received 2027-03-03', '', '28px'),
+      L('out', 'Tests  1 failed · 13 passed', '  (1.4s)'),
+      L('agent', 'Clamping the day to the month length. date-fns-tz handles DST more safely than our helper.')
+    ];
+    const tasks = [
+      { text: 'Model nextRunDate() for weekly, monthly and yearly presets', meta: 'Done · 9m', check: 1, half: 0, dash: 'none', color: '#EDEDED', fg: '#A1A1A1' },
+      { text: 'Clamp month-end dates (Jan 31 → Feb 28/29)', meta: 'In progress', check: 0, half: 1, dash: 'none', color: '#EDEDED', fg: '#EDEDED' },
+      { text: 'Issue invoices in a transaction, idempotent per run', meta: 'Next', check: 0, half: 0, dash: '2.4 2.2', color: '#A1A1A1', fg: '#EDEDED' },
+      { text: 'Hand off to Flare for edge-case tests', meta: 'Next', check: 0, half: 0, dash: '2.4 2.2', color: '#A1A1A1', fg: '#EDEDED' }
+    ];
+    const messages = [
+      { agent: 'atlas', from: 'Atlas', time: '24m', text: 'BRG-102 is yours. BRG-101 is merged, so the schema is ready. Keep the job idempotent per schedule run.' },
+      { agent: 'ember', from: 'Ember', time: '14m', text: 'Paused schedules: should they catch up on resume? Asked the user in the terminal.' },
+      { agent: 'flare', from: 'Flare', time: '3m', text: 'I have a failing fixture for Feb 29 in a DST week. Sending it over once your clamp lands.' }
+    ];
+    return { agents: agents, tabs: tabs, lines: lines, tasks: tasks, messages: messages, isTerminal: tab === 'terminal', isTasks: tab === 'tasks', isMessages: tab === 'messages' };
+  }
+}
+</script>
+</body>
+</html>

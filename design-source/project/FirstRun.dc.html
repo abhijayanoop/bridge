@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First run · set up this repo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0A0A}
+*{box-sizing:border-box}
+a{color:#EDEDED}a:hover{color:#FFFFFF}
+:focus-visible{outline:2px solid #EDEDED;outline-offset:2px}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bav-fig,.bav-body,.bav-eyes-in,.bav-halo{transform-box:fill-box;transform-origin:center}
+.bav-halo{opacity:0}
+@keyframes bav-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes bav-blink{0%,88%,100%{transform:scaleY(1)}92%{transform:scaleY(.12)}}
+@keyframes bav-scan{0%,100%{transform:translateX(-7px)}50%{transform:translateX(7px)}}
+@keyframes bav-halo{0%{transform:scale(.95);opacity:.4}100%{transform:scale(1.45);opacity:0}}
+.s-idle .bav-body{animation:bav-breathe 4s ease-in-out infinite}
+.s-idle .bav-eyes-in{animation:bav-blink 5s ease-in-out infinite}
+.s-exploring .bav-eyes-in{animation:bav-scan 1.6s ease-in-out infinite}
+.s-listening .bav-halo{animation:bav-halo 1.8s ease-out infinite}
+.orb-dot{opacity:.22}
+@keyframes orb-pulse{0%,100%{opacity:.25}50%{opacity:.95}}
+.o-pulse .orb-dot{animation:orb-pulse 1.6s ease-in-out infinite}
+.o-still .orb-dot.c{opacity:.8}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.s-listening .bav-halo{opacity:.22;transform:scale(1.2)}.o-pulse .orb-dot{opacity:.6}}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.5">
+<div style="flex: 1 1 232px; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Sidebar" active="none" inbox-count="0" lead-state="listening" hint-size="232px,900px"></dc-import>
+</div>
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<dc-import name="TopBar" section="Set up" branch="main" empty="{{ true }}" inbox-count="0" rate="3" hint-size="100%,56px"></dc-import>
+<main style="flex: 1; width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; padding: 48px 32px 64px">
+<div style="display: flex; align-items: center; gap: 24px">
+<div style="padding: 14px; flex: none"><dc-import name="Avatar" agent="atlas" size="72" state="listening" hint-size="72px,72px"></dc-import></div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 26px; line-height: 32px; font-weight: 600; letter-spacing: -0.5px">Hi, I'm Atlas, your lead engineer.</h1>
+<p style="margin: 0; font-size: 15px; line-height: 23px; color: #A1A1A1">I'll read this repo, plan features with you, split them into tickets and run workers in sandboxes. Nothing leaves the sandbox or merges without you.</p>
+</div>
+</div>
+
+<section aria-labelledby="setup-h" style="display: flex; flex-direction: column; border-radius: 16px; background: #141414; border: 1px solid rgba(255,255,255,0.08); overflow: hidden">
+<header style="display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+<h2 id="setup-h" style="margin: 0; font-size: 15px; font-weight: 600">Set up this repo</h2>
+<span style="font-size: 12px; color: #A1A1A1">2 of 4 done</span>
+<span style="flex: 1"></span>
+<span aria-hidden="true" style="width: 120px; height: 4px; border-radius: 9999px; background: #262626; overflow: hidden"><span style="display: block; width: 50%; height: 100%; background: #EDEDED; border-radius: 9999px"></span></span>
+</header>
+<ol style="list-style: none; margin: 0; padding: 0">
+<li style="display: flex; gap: 14px; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 1px"><circle cx="8" cy="8" r="7.5" style="fill: #EDEDED"></circle><path d="M4.8 8.2l2.2 2.2 4.2-4.4" style="fill: none; stroke: #0A0A0A; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">Repository</span><span style="font-size: 13px; color: #A1A1A1"><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #EDEDED">~/code/tally-web</span> · git repo on main · TypeScript, React, Postgres</span></div>
+<button type="button" style="height: 28px; padding: 0 10px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 12px; font-weight: 600">Change</button>
+</li>
+<li style="display: flex; gap: 14px; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 1px"><circle cx="8" cy="8" r="7.5" style="fill: #EDEDED"></circle><path d="M4.8 8.2l2.2 2.2 4.2-4.4" style="fill: none; stroke: #0A0A0A; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14px; font-weight: 600">Project context</span><span style="font-size: 13px; color: #A1A1A1">Reviews will check work against these files.</span>
+<span style="display: flex; flex-wrap: wrap; gap: 6px"><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; height: 22px; padding: 0 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center">AGENTS.md</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; height: 22px; padding: 0 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center">docs/api-conventions.md</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; height: 22px; padding: 0 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center">.eslintrc.cjs</span><button type="button" style="height: 22px; padding: 0 7px; border-radius: 6px; border: 1px dashed rgba(255,255,255,0.18); background: transparent; color: #A1A1A1; font: inherit; font-size: 11px">+ Add file</button></span>
+</div>
+</li>
+<li aria-current="step" style="display: flex; gap: 14px; padding: 18px 20px; background: #1B1B1B; border-bottom: 1px solid rgba(255,255,255,0.06)">
+<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" class="ic" style="margin-top: 1px; color: #EDEDED"><circle cx="8" cy="8" r="6.5"></circle><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" style="fill: currentColor; stroke: none"></path></svg>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 600">Sandboxes and limits</span><span style="font-size: 13px; color: #A1A1A1">Workers start with no network, no secrets and no push. You can loosen this per request from the Inbox.</span></div>
+<div style="display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px 20px; align-items: center; font-size: 13px">
+<span style="color: #A1A1A1">Worker cap</span>
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08)">
+<button type="button" aria-label="Fewer workers" onClick="{{dec}}" style="width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: #EDEDED; display: grid; place-items: center; cursor: pointer"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M5 12h14"></path></svg></button>
+<output aria-live="polite" style="min-width: 28px; text-align: center; font-weight: 600">{{cap}}</output>
+<button type="button" aria-label="More workers" onClick="{{inc}}" style="width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: #EDEDED; display: grid; place-items: center; cursor: pointer"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+<span style="font-size: 12px; color: #8A8A8A">Pro plan: Bridge pauses workers before you hit the rate limit.</span>
+</div>
+<sc-for list="{{perms}}" as="p" hint-placeholder-count="3">
+<span style="color: #A1A1A1">{{p.label}}</span>
+<div role="radiogroup" aria-label="{{p.label}}" style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); justify-self: start">
+<sc-for list="{{p.opts}}" as="o" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{o.on}}" style="height: 26px; padding: 0 10px; border-radius: 6px; border: 0; background: {{o.bg}}; color: {{o.fg}}; font: inherit; font-size: 12px; font-weight: 500">{{o.label}}</button>
+</sc-for>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px"><button type="button" style="height: 34px; padding: 0 14px; border-radius: 8px; border: 0; background: #EDEDED; color: #0A0A0A; font: inherit; font-size: 13px; font-weight: 600">Save and continue</button></div>
+</div>
+</li>
+<li style="display: flex; gap: 14px; padding: 16px 20px">
+<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" class="ic" style="margin-top: 1px; color: #A1A1A1"><circle cx="8" cy="8" r="6.5" style="stroke-dasharray: 2.4 2.2"></circle></svg>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 10px"><span style="font-size: 14px; font-weight: 600; color: #A1A1A1">Your first feature</span>
+<label for="first-feature" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Describe your first feature</label>
+<textarea id="first-feature" rows="3" disabled placeholder="Describe what to build. For example: let customers set an invoice to repeat monthly." style="resize: none; padding: 10px 12px; border-radius: 10px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); color: #8A8A8A; font: inherit; font-size: 13px; line-height: 20px"></textarea>
+<span style="font-size: 12px; color: #8A8A8A">Atlas drafts a spec for your approval before any ticket is created.</span>
+</div>
+</li>
+</ol>
+</section>
+<div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #8A8A8A">
+<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M7 10.5h10a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2zM8 10.5V8a4 4 0 0 1 8 0v2.5"></path></svg>
+Everything runs locally. Code stays on this machine; only model calls leave it.
+<span style="flex: 1"></span>
+<button type="button" style="height: 30px; padding: 0 10px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 12px; font-weight: 600">Skip setup</button>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const self = this;
+    const cap = (this.state && this.state.cap) || 3;
+    const opts = function (list, on) {
+      return list.map(function (l) { const s = l === on; return { label: l, on: s ? 'true' : 'false', bg: s ? '#262626' : 'transparent', fg: s ? '#EDEDED' : '#A1A1A1' }; });
+    };
+    return {
+      cap: String(cap),
+      dec: function () { self.setState({ cap: Math.max(1, cap - 1) }); },
+      inc: function () { self.setState({ cap: Math.min(8, cap + 1) }); },
+      perms: [
+        { label: 'Network', opts: opts(['Off', 'Ask each time', 'Allow list'], 'Ask each time') },
+        { label: 'Secrets', opts: opts(['Off', 'Ask each time'], 'Ask each time') },
+        { label: 'Git push', opts: opts(['Off', 'Ask each time', 'Branches only'], 'Ask each time') }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

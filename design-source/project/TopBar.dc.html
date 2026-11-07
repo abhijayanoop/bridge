@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Top bar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 56px; box-sizing: border-box; padding: 8px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 13px; line-height: 1.4">
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 14px">
+<span style="color: #A1A1A1">tally-web</span>
+<span aria-hidden="true" style="color: #5A5A5A">/</span>
+<span aria-current="page" style="font-weight: 600">{{section}}</span>
+</nav>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 6px; background: #141414; border: 1px solid rgba(255,255,255,0.08); color: #A1A1A1; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px">
+<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M6 3a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM6 17a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM18 5a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM6 7v10M18 9c0 4-3 5-6 5s-6 1-6 3"></path></svg>
+<span>{{branch}}</span>
+</span>
+<span style="flex: 1"></span>
+<sc-if value="{{hasWorkers}}" hint-placeholder-val="{{ true }}">
+<a href="Agents.dc.html" aria-label="{{workersLabel}}" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); color: #EDEDED; text-decoration: none">
+<span style="display: inline-flex; align-items: center; gap: 3px">
+<sc-for list="{{workers}}" as="w" hint-placeholder-count="4">
+<dc-import name="Avatar" agent="{{w.id}}" size="16" state="{{w.state}}" hint-size="16px,16px"></dc-import>
+</sc-for>
+</span>
+<span><span style="font-weight: 600">{{workerCount}}</span><span style="color: #8A8A8A"> / 5 workers</span></span>
+</a>
+</sc-if>
+<span style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08)" title="Claude Pro usage in the current 5-hour window">
+<span style="font-size: 11px; font-weight: 600; color: #A1A1A1; letter-spacing: 0.02em">PRO</span>
+<span aria-hidden="true" style="position: relative; width: 56px; height: 4px; border-radius: 9999px; background: #262626; overflow: hidden"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: {{ratePct}}; background: #EDEDED; border-radius: 9999px"></span></span>
+<span style="color: #A1A1A1"><span style="color: #EDEDED; font-weight: 500">{{rate}}%</span> · resets {{resets}}</span>
+</span>
+<a href="Palette.dc.html" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; width: 220px; padding: 0 8px 0 10px; border-radius: 8px; background: #141414; border: 1px solid rgba(255,255,255,0.08); color: #8A8A8A; text-decoration: none">
+<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="M11 4.5a6.5 6.5 0 1 1 0 13a6.5 6.5 0 1 1 0-13zM20 20l-4.4-4.4"></path></svg>
+<span style="flex: 1">Search or run…</span>
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #A1A1A1; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 0 5px; line-height: 18px">⌘K</kbd>
+</a>
+<a href="Inbox.dc.html" aria-label="{{inboxLabel}}" style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 10px; border-radius: 8px; background: {{inboxBg}}; border: 1px solid rgba(255,255,255,0.08); color: #EDEDED; text-decoration: none; font-weight: 500">
+<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="M3 13l2.4-7.2A2.5 2.5 0 0 1 7.8 4h8.4a2.5 2.5 0 0 1 2.4 1.8L21 13v4.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5zM3 13h5l1.5 2.5h5L16 13h5"></path></svg>
+<span>Inbox</span>
+<span style="min-width: 20px; height: 20px; padding: 0 6px; border-radius: 9999px; background: {{badgeBg}}; color: {{badgeFg}}; font-size: 11px; font-weight: 600; display: grid; place-items: center">{{inboxCount}}</span>
+</a>
+</header>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"section":{"editor":"text","default":"Board"},"branch":{"editor":"text","default":"feat/recurring-invoices"},"inboxCount":{"editor":"int","min":0,"max":99,"default":7},"rate":{"editor":"range","min":0,"max":100,"default":62},"empty":{"editor":"boolean","default":false},"inboxActive":{"editor":"boolean","default":false},"$preview":{"width":1208,"height":56}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const empty = this.props.empty === true || this.props.empty === 'true';
+    const workers = empty ? [] : [
+      { id: 'ember', state: 'implementing' },
+      { id: 'tide', state: 'exploring' },
+      { id: 'flare', state: 'debugging' },
+      { id: 'hazel', state: 'listening' }
+    ];
+    const count = this.props.inboxCount == null ? 7 : Number(this.props.inboxCount);
+    const rate = this.props.rate == null ? 62 : Number(this.props.rate);
+    const active = this.props.inboxActive === true || this.props.inboxActive === 'true';
+    return {
+      section: this.props.section || 'Board',
+      branch: this.props.branch || 'feat/recurring-invoices',
+      workers: workers,
+      hasWorkers: workers.length > 0,
+      workerCount: String(workers.length),
+      workersLabel: workers.length + ' of 5 worker slots in use',
+      rate: String(rate),
+      ratePct: rate + '%',
+      resets: empty ? '4h 58m' : '1h 42m',
+      inboxCount: String(count),
+      inboxLabel: 'Inbox, ' + count + ' items need you',
+      inboxBg: active ? '#1B1B1B' : '#141414',
+      badgeBg: count > 0 ? '#EDEDED' : '#262626',
+      badgeFg: count > 0 ? '#0A0A0A' : '#A1A1A1'
+    };
+  }
+}
+</script>
+</body>
+</html>

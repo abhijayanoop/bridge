@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<nav aria-label="Primary" style="display: flex; flex-direction: column; gap: 4px; width: 100%; height: 100%; min-height: 900px; box-sizing: border-box; padding: 12px; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.4">
+<button type="button" aria-label="Switch project, current tally-web" style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 10px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08); color: #EDEDED; cursor: pointer; text-align: left; font: inherit">
+<span style="width: 26px; height: 26px; border-radius: 8px; background: #1B1B1B; border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font-size: 12px; font-weight: 600; flex: none">T</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">tally-web</span><span style="font-size: 11px; color: #8A8A8A; font-family: 'JetBrains Mono', ui-monospace, monospace">~/code/tally-web</span></span>
+<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="fill: none; stroke: #8A8A8A; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"></path></svg>
+</button>
+<a href="Plan.dc.html" style="display: flex; align-items: center; gap: 8px; height: 36px; margin-top: 8px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); color: #EDEDED; text-decoration: none; font-size: 13px; font-weight: 500">
+<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="M12 5v14M5 12h14"></path></svg>
+<span style="flex: 1">New feature</span>
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 0 5px; line-height: 18px">N</kbd>
+</a>
+<div style="height: 12px"></div>
+<span style="padding: 0 10px 4px; font-size: 11px; font-weight: 500; color: #8A8A8A; letter-spacing: 0.02em">Workspace</span>
+<sc-for list="{{links}}" as="l" hint-placeholder-count="5">
+<a href="{{l.href}}" aria-current="{{l.current}}" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; text-decoration: none; color: {{l.fg}}; background: {{l.bg}}; font-size: 14px; font-weight: 500">
+<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="{{l.icon}}"></path></svg>
+<span style="flex: 1">{{l.label}}</span>
+<sc-if value="{{l.badge}}" hint-placeholder-val="{{ false }}">
+<span aria-label="{{l.badgeLabel}}" style="min-width: 20px; height: 20px; padding: 0 6px; border-radius: 9999px; background: #EDEDED; color: #0A0A0A; font-size: 11px; font-weight: 600; display: grid; place-items: center">{{l.badge}}</span>
+</sc-if>
+<sc-if value="{{l.noBadge}}" hint-placeholder-val="{{ true }}">
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A">{{l.keys}}</kbd>
+</sc-if>
+</a>
+</sc-for>
+<div style="flex: 1; min-height: 24px"></div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Avatar" agent="atlas" size="24" state="{{leadState}}" hint-size="24px,24px"></dc-import>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+<span style="font-size: 13px; font-weight: 600">Atlas <span style="font-weight: 400; color: #8A8A8A">· Lead</span></span>
+<span style="font-size: 12px; color: #A1A1A1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{leadText}}</span>
+</span>
+<dc-import name="Orb" agent="atlas" size="20" state="{{leadState}}" hint-size="20px,20px"></dc-import>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; background: transparent; border: 0; color: #A1A1A1; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; text-align: left">
+<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 5a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM9 15a2 2 0 1 1 0 4a2 2 0 1 1 0-4z"></path></svg>
+<span style="flex: 1">Settings</span>
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A">⌘ ,</kbd>
+</button>
+</nav>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["board","agents","inbox","plan","review","none"],"default":"board"},"inboxCount":{"editor":"int","min":0,"max":99,"default":7},"leadState":{"editor":"enum","options":["idle","planning","exploring","listening"],"default":"planning"},"$preview":{"width":232,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active || 'board';
+    const count = this.props.inboxCount == null ? 7 : Number(this.props.inboxCount);
+    const I = {
+      board: 'M6 4h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM9.5 4v16M14.5 4v16',
+      agents: 'M9 5h6a5 5 0 0 1 5 5v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-4a5 5 0 0 1 5-5zM9.5 10.5l-1 2.4M14 10.5l.6 2.4',
+      inbox: 'M3 13l2.4-7.2A2.5 2.5 0 0 1 7.8 4h8.4a2.5 2.5 0 0 1 2.4 1.8L21 13v4.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5zM3 13h5l1.5 2.5h5L16 13h5',
+      plan: 'M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM14 3v5h5M9 13h6M9 17h4',
+      review: 'M6 3.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM18 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4M13 5l-2 2 2 2'
+    };
+    const defs = [
+      ['board', 'Board', 'Board.dc.html', 'G B'],
+      ['agents', 'Agents', 'Agents.dc.html', 'G A'],
+      ['inbox', 'Inbox', 'Inbox.dc.html', 'G I'],
+      ['plan', 'Plan', 'Plan.dc.html', 'G P'],
+      ['review', 'Review', 'Review.dc.html', 'G R']
+    ];
+    const links = defs.map(function (d) {
+      const on = d[0] === active;
+      const badge = d[0] === 'inbox' && count > 0 ? String(count) : '';
+      return {
+        label: d[1], href: d[2], keys: d[3], icon: I[d[0]],
+        current: on ? 'page' : 'false',
+        fg: on ? '#EDEDED' : '#A1A1A1',
+        bg: on ? '#1B1B1B' : 'transparent',
+        badge: badge, noBadge: !badge, badgeLabel: count + ' items need you'
+      };
+    });
+    const ls = this.props.leadState || 'planning';
+    const text = { idle: 'Ready for the next feature', planning: 'Planning BRG-113, 114', exploring: 'Reading the repo', listening: 'Waiting for you' };
+    return { links: links, leadState: ls, leadText: text[ls] || text.planning, leadOrb: ls === 'idle' ? 'still' : (ls === 'listening' ? 'pulse' : 'spin') };
+  }
+}
+</script>
+</body>
+</html>

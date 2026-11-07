@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Board</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0A0A}
+*{box-sizing:border-box}
+a{color:#EDEDED}a:hover{color:#FFFFFF}
+:focus-visible{outline:2px solid #EDEDED;outline-offset:2px}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bav-fig,.bav-body,.bav-eyes-in,.bav-halo{transform-box:fill-box;transform-origin:center}
+.bav-halo{opacity:0}
+@keyframes bav-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes bav-blink{0%,88%,100%{transform:scaleY(1)}92%{transform:scaleY(.12)}}
+@keyframes bav-morph{0%,100%{transform:scale(1,1)}33%{transform:scale(1.05,.95)}66%{transform:scale(.96,1.04)}}
+@keyframes bav-drift{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes bav-scan{0%,100%{transform:translateX(-7px)}50%{transform:translateX(7px)}}
+@keyframes bav-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes bav-wobble{0%,100%{transform:rotate(0)}25%{transform:rotate(-5deg)}75%{transform:rotate(5deg)}}
+@keyframes bav-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
+@keyframes bav-halo{0%{transform:scale(.95);opacity:.4}100%{transform:scale(1.45);opacity:0}}
+@keyframes bav-happy{0%,8%{transform:scaleY(1)}14%,34%{transform:scaleY(.3)}42%,100%{transform:scaleY(1)}}
+@keyframes bav-hop{0%,8%{transform:translateY(0)}16%{transform:translateY(-6px)}26%,100%{transform:translateY(0)}}
+.s-idle .bav-body{animation:bav-breathe 4s ease-in-out infinite}
+.s-idle .bav-eyes-in{animation:bav-blink 5s ease-in-out infinite}
+.s-planning .bav-body{animation:bav-morph 3.2s ease-in-out infinite}
+.s-planning .bav-eyes-in{animation:bav-drift 3.2s ease-in-out infinite}
+.s-exploring .bav-eyes-in{animation:bav-scan 1.6s ease-in-out infinite}
+.s-implementing .bav-fig{animation:bav-bob .6s ease-in-out infinite}
+.s-implementing .bav-eyes-in{transform:scaleY(.8)}
+.s-debugging .bav-fig{animation:bav-wobble .8s ease-in-out infinite}
+.s-debugging .bav-eyes-in{transform:scaleY(.4)}
+.s-composing .bav-fig{animation:bav-nod 2.4s ease-in-out infinite}
+.s-composing .bav-eyes-in{transform:translateY(6px)}
+.s-listening .bav-halo{animation:bav-halo 1.8s ease-out infinite}
+.s-blocked .bav-fig{opacity:.4;filter:saturate(.5)}
+.s-done .bav-fig{animation:bav-hop 4s ease-in-out infinite}
+.s-done .bav-eyes-in{animation:bav-happy 4s ease-in-out infinite}
+.orb-dot{opacity:.22}
+@keyframes orb{0%,100%{opacity:.18}35%{opacity:1}}
+@keyframes orb-pulse{0%,100%{opacity:.25}50%{opacity:.95}}
+.o-spin .orb-dot{animation:orb 1.1s ease-in-out infinite}
+.o-spin .orb-dot.c{animation:none;opacity:.6}
+.o-pulse .orb-dot{animation:orb-pulse 1.6s ease-in-out infinite}
+.o-still .orb-dot.c{opacity:.8}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.s-listening .bav-halo{opacity:.22;transform:scale(1.2)}.o-spin .orb-dot,.o-pulse .orb-dot{opacity:.6}}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 100vh; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.5">
+<div style="flex: 1 1 232px; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Sidebar" active="board" hint-size="232px,900px"></dc-import>
+</div>
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<dc-import name="TopBar" section="Board" hint-size="100%,56px"></dc-import>
+<main style="flex: 1; display: flex; flex-direction: column; gap: 20px; padding: 24px 32px 32px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="flex: 1 1 360px; display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.4px">Recurring invoices</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; color: #A1A1A1">
+<span>11 tickets</span><span aria-hidden="true" style="color: #5A5A5A">·</span>
+<span style="display: inline-flex; align-items: center; gap: 6px">planned by <dc-import name="Avatar" agent="atlas" size="16" state="planning" hint-size="16px,16px"></dc-import><span style="color: #EDEDED">Atlas</span></span><span aria-hidden="true" style="color: #5A5A5A">·</span>
+<a href="Plan.dc.html" style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); color: #EDEDED; text-decoration: none; font-size: 12px"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" class="ic"><circle cx="8" cy="8" r="6"></circle><path d="M8 2a6 6 0 0 1 0 12z" style="fill: currentColor; stroke: none"></path></svg>Gate 2 of 3 · Tickets approved</a>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<div role="tablist" aria-label="View" style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: #141414; border: 1px solid rgba(255,255,255,0.08)">
+<button type="button" role="tab" aria-selected="true" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: #262626; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 500">Board</button>
+<button type="button" role="tab" aria-selected="false" style="height: 28px; padding: 0 12px; border-radius: 7px; border: 0; background: transparent; color: #A1A1A1; font: inherit; font-size: 13px; font-weight: 500">List</button>
+</div>
+<button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); background: transparent; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 500"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" class="ic"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>Filter</button>
+<button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: #1B1B1B; color: #EDEDED; font: inherit; font-size: 13px; font-weight: 600"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" class="ic"><path d="M12 5v14M5 12h14"></path></svg>New ticket</button>
+</div>
+</div>
+<p style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8A8A8A"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="ic"><path d="M7 10.5h10a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6.5a2 2 0 0 1 2-2zM8 10.5V8a4 4 0 0 1 8 0v2.5"></path></svg>Agents move cards between columns. You can drag within a column to change priority.</p>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; align-items: start; overflow-x: auto; padding-bottom: 4px">
+<sc-for list="{{columns}}" as="col" hint-placeholder-count="4">
+<section aria-label="{{col.aria}}" style="display: flex; flex-direction: column; gap: 8px; min-width: 0">
+<header style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px">
+<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" class="ic" style="color: #EDEDED">
+<circle cx="8" cy="8" r="6" style="stroke-dasharray: {{col.dash}}; opacity: {{col.ringOp}}"></circle>
+<path d="M8 2a6 6 0 0 1 0 12z" style="fill: currentColor; stroke: none; opacity: {{col.half}}"></path>
+<circle cx="8" cy="8" r="2.4" style="fill: currentColor; stroke: none; opacity: {{col.dot}}"></circle>
+<circle cx="8" cy="8" r="7" style="fill: #EDEDED; stroke: none; opacity: {{col.full}}"></circle>
+<path d="M5 8.2l2 2 4-4.2" style="stroke: #0A0A0A; opacity: {{col.full}}"></path>
+</svg>
+<h2 style="margin: 0; font-size: 13px; font-weight: 600">{{col.name}}</h2>
+<span style="font-size: 12px; color: #8A8A8A">{{col.count}}</span>
+<span style="flex: 1"></span>
+<button type="button" aria-label="{{col.addLabel}}" style="width: 28px; height: 28px; border-radius: 7px; border: 0; background: transparent; color: #8A8A8A; display: grid; place-items: center"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" class="ic"><path d="M12 5v14M5 12h14"></path></svg></button>
+</header>
+<sc-for list="{{col.cards}}" as="c" hint-placeholder-count="3">
+<sc-if value="{{c.isDrop}}" hint-placeholder-val="{{ false }}">
+<div aria-hidden="true" style="display: flex; align-items: center; gap: 0; height: 6px; margin: -2px 0"><span style="width: 6px; height: 6px; border-radius: 9999px; border: 1.5px solid #EDEDED"></span><span style="flex: 1; height: 2px; background: #EDEDED; border-radius: 2px"></span></div>
+</sc-if>
+<sc-if value="{{c.isCard}}" hint-placeholder-val="{{ true }}">
+<article aria-label="{{c.aria}}" style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: {{c.bg}}; border: 1px solid {{c.border}}; box-shadow: {{c.shadow}}; transform: {{c.tf}}">
+<div style="display: flex; align-items: center; gap: 8px">
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; color: #8A8A8A">{{c.id}}</span>
+<sc-if value="{{c.pr}}" hint-placeholder-val="{{ false }}">
+<a href="Review.dc.html" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); color: #A1A1A1; text-decoration: none; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px"><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" class="ic"><path d="M6 3.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM18 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"></path></svg>{{c.pr}}</a>
+</sc-if>
+<span style="flex: 1"></span>
+<button type="button" aria-label="{{c.dragLabel}}" style="width: 24px; height: 24px; margin: -4px -4px -4px 0; border-radius: 6px; border: 0; background: transparent; color: {{c.gripColor}}; display: grid; place-items: center; cursor: grab"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="fill: currentColor"><circle cx="9" cy="6" r="1.5"></circle><circle cx="15" cy="6" r="1.5"></circle><circle cx="9" cy="12" r="1.5"></circle><circle cx="15" cy="12" r="1.5"></circle><circle cx="9" cy="18" r="1.5"></circle><circle cx="15" cy="18" r="1.5"></circle></svg></button>
+</div>
+<h3 style="margin: 0; font-size: 14px; line-height: 20px; font-weight: 500; color: {{c.titleColor}}">{{c.title}}</h3>
+<sc-if value="{{c.hasEdges}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{c.edges}}" as="e" hint-placeholder-count="1">
+<span style="display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border-radius: 6px; border: 1px {{e.borderStyle}} {{e.borderColor}}; color: {{e.color}}; font-size: 11px"><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" class="ic"><path d="{{e.icon}}"></path></svg><span style="font-family: 'JetBrains Mono', ui-monospace, monospace">{{e.id}}</span><span>{{e.label}}</span></span>
+</sc-for>
+</div>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 8px; padding-top: 2px">
+<sc-if value="{{c.assigned}}" hint-placeholder-val="{{ true }}">
+<dc-import name="Avatar" agent="{{c.agent}}" size="20" state="{{c.state}}" hint-size="20px,20px"></dc-import>
+<span style="font-size: 12px; font-weight: 600">{{c.agentName}}</span>
+<dc-import name="Orb" agent="{{c.agent}}" size="20" state="{{c.state}}" hint-size="20px,20px"></dc-import>
+</sc-if>
+<sc-if value="{{c.unassigned}}" hint-placeholder-val="{{ false }}">
+<span aria-hidden="true" style="width: 20px; height: 20px; border-radius: 9999px; border: 1.5px dashed rgba(255,255,255,0.24)"></span>
+<span style="font-size: 12px; font-weight: 600; color: #A1A1A1">Unassigned</span>
+</sc-if>
+<span style="font-size: 12px; color: #A1A1A1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0">{{c.status}}</span>
+</div>
+</article>
+</sc-if>
+</sc-for>
+</section>
+</sc-for>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showDrag":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const showDrag = this.props.showDrag !== false;
+    const DEP = 'M6 9.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM8.2 12H18M15 8.5l3.5 3.5-3.5 3.5';
+    const OK = 'M5 12.5l4.5 4.5L19 7.5';
+    const NAMES = { atlas: 'Atlas', ember: 'Ember', tide: 'Tide', flare: 'Flare', rosa: 'Rosa', iris: 'Iris', sol: 'Sol', hazel: 'Hazel' };
+    const ORB = { idle: 'still', blocked: 'still', done: 'still', listening: 'pulse' };
+    const edge = function (id, label, open) {
+      return { id: id, label: label, icon: open ? DEP : OK, borderStyle: open ? 'solid' : 'dashed', borderColor: open ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.1)', color: open ? '#EDEDED' : '#8A8A8A' };
+    };
+    const card = function (o) {
+      const lifted = !!o.lifted && showDrag;
+      const done = !!o.done;
+      return {
+        isCard: true, isDrop: false,
+        id: o.id, title: o.title, pr: o.pr || '',
+        edges: o.edges || [], hasEdges: !!(o.edges && o.edges.length),
+        assigned: !!o.agent, unassigned: !o.agent,
+        agent: o.agent || 'ember', agentName: NAMES[o.agent] || '', state: o.state || 'idle', orb: ORB[o.state] || 'spin',
+        status: o.status,
+        bg: lifted ? '#1B1B1B' : '#141414',
+        border: lifted ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)',
+        shadow: lifted ? '0 16px 40px rgba(0,0,0,0.55)' : 'none',
+        tf: lifted ? 'translateY(-2px) rotate(-0.8deg)' : 'none',
+        gripColor: lifted ? '#EDEDED' : '#5E5E5E',
+        titleColor: done ? '#A1A1A1' : '#EDEDED',
+        dragLabel: 'Reorder ' + o.id,
+        aria: o.id + ', ' + o.title + ', ' + (NAMES[o.agent] || 'unassigned') + ', ' + o.status
+      };
+    };
+    const drop = { isDrop: true, isCard: false };
+    const backlog = [
+      card({ id: 'BRG-105', title: 'Upcoming invoices list on the customer page', agent: 'tide', state: 'blocked', status: 'Queued · blocked by 1', edges: [edge('BRG-103', 'in review', true)] })
+    ];
+    if (showDrag) backlog.push(drop);
+    backlog.push(card({ id: 'BRG-108', title: 'Docs: recurring invoices guide', agent: 'hazel', state: 'idle', status: 'Queued', lifted: true, edges: [edge('BRG-104', 'in progress', true)] }));
+    backlog.push(card({ id: 'BRG-106', title: 'Email the generated invoice to the customer', status: 'Waiting on BRG-102', edges: [edge('BRG-102', 'in progress', true)] }));
+    const progress = [
+      card({ id: 'BRG-102', title: 'Scheduler job that issues invoices from schedules', agent: 'ember', state: 'implementing', status: 'Implementing · 18m', edges: [edge('BRG-101', 'merged', false), edge('BRG-109', 'done', false)] }),
+      card({ id: 'BRG-104', title: 'Schedule editor in the invoice form', agent: 'tide', state: 'exploring', status: 'Reading InvoiceForm.tsx', edges: [edge('BRG-103', 'in review', true)] }),
+      card({ id: 'BRG-107', title: 'Edge-case tests: month-end, DST, leap years', agent: 'flare', state: 'debugging', status: 'Debugging · 2 failing' })
+    ];
+    const review = [
+      card({ id: 'BRG-103', title: 'CRUD API for recurring schedules', agent: 'hazel', state: 'listening', status: 'Ready to merge · needs you', pr: '#482', edges: [edge('BRG-101', 'merged', false)] }),
+      card({ id: 'BRG-112', title: 'Webhook event for generated invoices', agent: 'rosa', state: 'composing', status: 'Writing review · 6m', pr: '#485', edges: [edge('BRG-101', 'merged', false)] })
+    ];
+    const done = [
+      card({ id: 'BRG-101', title: 'recurring_schedules table and migration', agent: 'ember', state: 'done', status: 'Merged', pr: '#476', done: true }),
+      card({ id: 'BRG-109', title: 'Research: timezone handling for schedule runs', agent: 'iris', state: 'done', status: 'Report attached', done: true }),
+      card({ id: 'BRG-110', title: 'Usage analysis: how customers invoice today', agent: 'sol', state: 'done', status: 'Read-only · names masked', done: true })
+    ];
+    const col = function (name, cards, g) {
+      const n = cards.filter(function (c) { return c.isCard; }).length;
+      return {
+        name: name, cards: cards, count: String(n), aria: name + ', ' + n + ' tickets', addLabel: 'Add ticket to ' + name,
+        dash: g === 'backlog' ? '2.4 2.2' : 'none', ringOp: g === 'done' ? 0 : 1,
+        half: g === 'progress' ? 1 : 0, dot: g === 'review' ? 1 : 0, full: g === 'done' ? 1 : 0
+      };
+    };
+    return {
+      columns: [col('Backlog', backlog, 'backlog'), col('In progress', progress, 'progress'), col('Review', review, 'review'), col('Done', done, 'done')]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Command palette</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0A0A0A}
+*{box-sizing:border-box}
+a{color:#EDEDED}a:hover{color:#FFFFFF}
+:focus-visible{outline:2px solid #EDEDED;outline-offset:2px}
+.ic{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.bav-fig,.bav-body,.bav-eyes-in,.bav-halo{transform-box:fill-box;transform-origin:center}
+.bav-halo{opacity:0}
+@keyframes bav-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+@keyframes bav-blink{0%,88%,100%{transform:scaleY(1)}92%{transform:scaleY(.12)}}
+@keyframes bav-morph{0%,100%{transform:scale(1,1)}33%{transform:scale(1.05,.95)}66%{transform:scale(.96,1.04)}}
+@keyframes bav-drift{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes bav-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes bav-halo{0%{transform:scale(.95);opacity:.4}100%{transform:scale(1.45);opacity:0}}
+@keyframes pal-in{from{opacity:0;transform:translateY(-6px) scale(.985)}to{opacity:1;transform:none}}
+.s-idle .bav-body{animation:bav-breathe 4s ease-in-out infinite}
+.s-idle .bav-eyes-in{animation:bav-blink 5s ease-in-out infinite}
+.s-planning .bav-body{animation:bav-morph 3.2s ease-in-out infinite}
+.s-planning .bav-eyes-in{animation:bav-drift 3.2s ease-in-out infinite}
+.s-implementing .bav-fig{animation:bav-bob .6s ease-in-out infinite}
+.s-implementing .bav-eyes-in{transform:scaleY(.8)}
+.s-listening .bav-halo{animation:bav-halo 1.8s ease-out infinite}
+.orb-dot{opacity:.22}
+@keyframes orb{0%,100%{opacity:.18}35%{opacity:1}}
+.o-spin .orb-dot{animation:orb 1.1s ease-in-out infinite}
+.o-spin .orb-dot.c{animation:none;opacity:.6}
+.pal{animation:pal-in 250ms cubic-bezier(.2,.8,.2,1)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.s-listening .bav-halo{opacity:.22;transform:scale(1.2)}.o-spin .orb-dot{opacity:.6}}
+</style>
+</helmet>
+<div style="position: relative; display: flex; flex-wrap: wrap; min-height: 100vh; background: #0A0A0A; color: #EDEDED; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.5">
+<div aria-hidden="true" style="flex: 1 1 232px; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.08)">
+<dc-import name="Sidebar" active="board" hint-size="232px,900px"></dc-import>
+</div>
+<div aria-hidden="true" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<dc-import name="TopBar" section="Board" hint-size="100%,56px"></dc-import>
+<div style="flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 88px 32px 32px">
+<div style="display: flex; flex-direction: column; gap: 8px"><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div><div style="height: 120px; border-radius: 12px; background: #141414; border: 1px solid rgba(255,255,255,0.08)"></div></div>
+</div>
+</div>
+
+<div style="position: absolute; inset: 0; background: rgba(0,0,0,0.62); display: flex; justify-content: center; align-items: flex-start; padding: 96px 24px 24px">
+<div class="pal" role="dialog" aria-modal="true" aria-label="Command palette" style="width: 100%; max-width: 660px; display: flex; flex-direction: column; border-radius: 16px; background: #141414; border: 1px solid rgba(255,255,255,0.14); box-shadow: 0 24px 64px rgba(0,0,0,0.6); overflow: hidden">
+<div style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,0.08)">
+<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ic" style="color: #A1A1A1"><path d="M11 4.5a6.5 6.5 0 1 1 0 13a6.5 6.5 0 1 1 0-13zM20 20l-4.4-4.4"></path></svg>
+<label for="cmd" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Command</label>
+<input id="cmd" type="text" role="combobox" aria-expanded="true" aria-controls="cmd-list" placeholder="Run a quick action, or search tickets and agents…" style="flex: 1; height: 40px; border: 0; background: transparent; color: #EDEDED; font: inherit; font-size: 15px; outline: none">
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #A1A1A1; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 6px; line-height: 20px">esc</kbd>
+</div>
+<div id="cmd-list" role="listbox" aria-label="Commands" style="display: flex; flex-direction: column; padding: 8px; max-height: 560px; overflow: auto">
+<span style="padding: 8px 10px 6px; font-size: 11px; font-weight: 500; color: #8A8A8A">Quick actions · Atlas runs these</span>
+<sc-for list="{{actions}}" as="a" hint-placeholder-count="6">
+<button type="button" role="option" aria-selected="{{a.on}}" onClick="{{a.pick}}" style="display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 10px; border-radius: 10px; border: 0; background: {{a.bg}}; color: #EDEDED; font: inherit; text-align: left; cursor: pointer">
+<span style="width: 32px; height: 32px; flex: none; border-radius: 8px; background: #0A0A0A; border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="ic"><path d="{{a.icon}}"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 14px; font-weight: 500">{{a.label}}</span><span style="font-size: 12px; color: #A1A1A1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.desc}}</span></span>
+<sc-if value="{{a.isOn}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; color: #A1A1A1; display: inline-flex; align-items: center; gap: 6px">Run<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #EDEDED; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 5px; line-height: 18px">↵</kbd></span></sc-if>
+<kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #8A8A8A">{{a.keys}}</kbd>
+</button>
+</sc-for>
+<span style="padding: 12px 10px 6px; font-size: 11px; font-weight: 500; color: #8A8A8A">Go to</span>
+<sc-for list="{{jumps}}" as="j" hint-placeholder-count="4">
+<a href="{{j.href}}" role="option" aria-selected="false" style="display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 6px 10px; border-radius: 10px; color: #EDEDED; text-decoration: none">
+<span style="width: 32px; display: grid; place-items: center; flex: none"><dc-import name="Avatar" agent="{{j.agent}}" size="20" state="{{j.state}}" hint-size="20px,20px"></dc-import></span>
+<span style="flex: 1; font-size: 14px">{{j.label}}</span>
+<span style="font-size: 12px; color: #A1A1A1">{{j.meta}}</span>
+</a>
+</sc-for>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 16px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: #8A8A8A">
+<span style="display: inline-flex; align-items: center; gap: 6px"><kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #EDEDED; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 5px; line-height: 18px">↑↓</kbd>move</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #EDEDED; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 5px; line-height: 18px">↵</kbd>run</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><kbd style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: #EDEDED; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; padding: 0 5px; line-height: 18px">tab</kbd>add context</span>
+<span style="flex: 1"></span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><dc-import name="Avatar" agent="atlas" size="16" state="idle" lead="false" hint-size="16px,16px"></dc-import>Runs as Atlas, the lead</span>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const self = this;
+    const sel = (this.state && this.state.sel) || 'diagnose';
+    const A = [
+      ['architecture', 'Architecture review', 'Map module boundaries and propose deeper, simpler interfaces', 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5', 'A'],
+      ['diagnose', 'Diagnose a bug', 'Reproduce, write a failing test, find the cause, then fix', 'M12 4a8 8 0 1 1 0 16a8 8 0 1 1 0-16zM12 9a3 3 0 1 1 0 6a3 3 0 1 1 0-6zM12 1.5V5M12 19v3.5M1.5 12H5M19 12h3.5', 'D'],
+      ['research', 'Research', 'Answer a question from primary sources and save notes to the repo', 'M11 4.5a6.5 6.5 0 1 1 0 13a6.5 6.5 0 1 1 0-13zM20 20l-4.4-4.4', 'R'],
+      ['prototype', 'Prototype', 'Build a throwaway version to settle a design question', 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 14h9', 'P'],
+      ['triage', 'Triage', 'Sort new issues into tickets with agent-ready briefs', 'M4 6h16M7 12h10M10 18h4', 'T'],
+      ['handoff', 'Hand off', 'Compact this work so a fresh agent can pick it up', 'M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M18 12H8', 'H']
+    ];
+    const actions = A.map(function (a) {
+      const on = a[0] === sel;
+      return { label: a[1], desc: a[2], icon: a[3], keys: '⌘⇧' + a[4], on: on ? 'true' : 'false', isOn: on, bg: on ? '#1B1B1B' : 'transparent', pick: function () { self.setState({ sel: a[0] }); } };
+    });
+    const jumps = [
+      { label: 'Inbox', meta: '7 need you', href: 'Inbox.dc.html', agent: 'hazel', state: 'listening' },
+      { label: 'Ember · BRG-102 terminal', meta: 'Implementing', href: 'Agents.dc.html', agent: 'ember', state: 'implementing' },
+      { label: 'Plan · Recurring invoices', meta: 'Gate 2 needs you', href: 'Plan.dc.html', agent: 'atlas', state: 'planning' },
+      { label: 'Review · PR #482', meta: 'Ready to merge', href: 'Review.dc.html', agent: 'hazel', state: 'listening' }
+    ];
+    return { actions: actions, jumps: jumps };
+  }
+}
+</script>
+</body>
+</html>
