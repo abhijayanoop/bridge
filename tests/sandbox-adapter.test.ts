@@ -64,6 +64,13 @@ describe("Docker Sandboxes adapter", () => {
     expect(r.json.workspace.mode).toBe("sandbox");
     await expect.poll(() => t.specs.length).toBe(1);
     expect(t.specs[0]!.permissionPrompts).toBe(false);
+    // The agent is told to use the Bridge tools and to tick finished boxes; one line, since it is a command-line argument.
+    const task = t.specs[0]!.task!;
+    expect(task).toMatch(/set_my_status/);
+    expect(task).toMatch(/ask_user/);
+    expect(task).toMatch(/request_access/);
+    expect(task).toContain("- [x]");
+    expect(task).not.toMatch(/\n/);
     const name = `bridge-${r.json.id}`;
     // The sandbox mounts the per-ticket clone, never the user's working copy.
     expect(r.json.workspace.path).not.toBe(t.project.path);

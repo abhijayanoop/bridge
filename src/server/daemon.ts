@@ -43,6 +43,20 @@ async function readJson(req: IncomingMessage): Promise<any> {
   return body ? JSON.parse(body) : {};
 }
 
+/**
+ * The agent's first prompt. One line, because it travels as a command-line argument. Names the Bridge tools,
+ * since the agent will not use them unless told, and asks it to tick finished acceptance boxes in its ticket file.
+ */
+export function taskFor(ticket: { key: string; title: string; file: string }): string {
+  return [
+    `Work on ticket ${ticket.key}: ${ticket.title}.`,
+    `Read the ticket file ${ticket.file} first (or call the Bridge tool get_my_ticket).`,
+    `Use the Bridge tools: set_my_status to "working" when you start and "done" when every acceptance box is met; ask_user for a question only the user can answer; request_access for a network domain, secret or push you need.`,
+    `As you meet each acceptance box, change "- [ ]" to "- [x]" in the ticket file and commit that with your work on the current branch.`,
+    `Never merge: the user merges.`,
+  ].join(" ");
+}
+
 export async function startDaemon(opts: DaemonOptions) {
   const store = openStore(opts.dataDir);
   const sockets = new Set<WebSocket>();
@@ -175,7 +189,7 @@ export async function startDaemon(opts: DaemonOptions) {
         catch (err) { return send(res, 500, { error: `could not create clone: ${(err as Error).message}` }); }
       }
       const cwd = workspace?.path ?? project.path;
-      const task = ticket ? `Work on ticket ${ticket.key}: ${ticket.title}. Read the ticket file ${ticket.file} first.` : undefined;
+      const task = ticket ? taskFor(ticket) : undefined;
       store.addAgent(agent);
       if (workspace) agentBranch.set(agent.id, workspace.branch);
       const token = randomUUID();
