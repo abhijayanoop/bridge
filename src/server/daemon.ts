@@ -13,7 +13,15 @@ import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./ap
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
 import { createPullRaiser } from "./pull-requests.ts";
-import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
+import { COLUMNS, moveTicket, readTickets, watchTickets, type Ticket } from "./tickets.ts";
+
+/** Workers that may run at once: 2 by default, raisable to 3 (the Pro plan's limits make more costly). */
+export const DEFAULT_CAP = 2;
+export const MAX_CAP = 3;
+/** What an agent's terminal prints when the plan's usage limit is hit. Narrow on purpose: code that merely mentions rate limits must not pause the queue. */
+const RATE_LIMIT_TEXT = /usage limit reached|(?:5-hour|weekly|session|rate) limit reached|hit your (?:\w+ )?limit/i;
+
+interface Queued { id: string; projectId: string; name: string; ticketId: string; ticketKey: string; ticketTitle: string }
 
 export interface DaemonOptions {
   dataDir: string;
@@ -118,14 +126,14 @@ export async function startDaemon(opts: DaemonOptions) {
     },
     broadcast,
   });
-  /** An agent finished its ticket: publish its branch, then open its pull request. */
-  const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) pulls.raise(agentId, branch); };
+  /** An agent finished its ticket: publish its branch, open its pull request, and give its slot to the queue. */
+  const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) pulls.raise(agentId, branch); drain(); };
 
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
   const watchProject = (p: Project) => {
     if (watchers.has(p.id)) return;
-    const stop = watchTickets(p.path, () => broadcast({ type: "tickets", projectId: p.id }));
+    const stop = watchTickets(p.path, () => { broadcast({ type: "tickets", projectId: p.id }); drain(); });
     if (stop) watchers.set(p.id, stop);
   };
 
@@ -134,10 +142,85 @@ export async function startDaemon(opts: DaemonOptions) {
     res.end(JSON.stringify(body));
   };
 
+  // Worker cap and queue. Only ticket workers count; the lead and ticketless agents are free.
+  const cap = () => {
+    const n = Number(store.setting("workerCap"));
+    return Number.isInteger(n) && n >= 1 && n <= MAX_CAP ? n : DEFAULT_CAP;
+  };
+  const running = () => store.agents().filter((a) => a.ticketId && !a.lead && a.status !== "done").length;
+  const queue: Queued[] = [];
+  /** Set when an agent reports the plan's usage limit; the queue stays paused until the user resumes it. */
+  let rateLimit: { since: number; agentId: string } | null = null;
+  const ticketOf = (q: Queued) => {
+    const project = store.projects().find((p) => p.id === q.projectId);
+    return { project, ticket: project ? readTickets(project.path, project.id).find((t) => t.id === q.ticketId) : undefined };
+  };
+  const limitsView = () => ({
+    cap: cap(), max: MAX_CAP, running: running(),
+    rateLimited: rateLimit,
+    queued: queue.map((q) => ({ ...q, blocked: ticketOf(q).ticket?.blocked ?? false })),
+  });
+  const limitsChanged = () => broadcast({ type: "limits", limits: limitsView() });
+  /** Starts queued tickets, oldest first, while there is a free slot, no rate limit and no unmet blocker. */
+  function drain() {
+    for (let i = 0; i < queue.length && !rateLimit && running() < cap();) {
+      const q = queue[i]!;
+      const { project, ticket } = ticketOf(q);
+      if (!project || !ticket) { queue.splice(i, 1); continue; }
+      if (ticket.blocked) { i++; continue; }
+      queue.splice(i, 1);
+      spawn(project, q.name, ticket, false);
+    }
+    limitsChanged();
+  }
+
+  /** Creates the agent (and its clone, for a ticket) and starts it. */
+  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean): { code: number; body: unknown } => {
+    const projectId = project.id;
+    const identity = pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
+    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
+    let workspace: Workspace | null = null;
+    if (ticket) {
+      try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
+      catch (err) { return { code: 500, body: { error: `could not create clone: ${(err as Error).message}` } }; }
+    }
+    const cwd = workspace?.path ?? project.path;
+    const task = ticket ? taskFor(ticket) : undefined;
+    store.addAgent(agent);
+    if (workspace) agentBranch.set(agent.id, workspace.branch);
+    const token = randomUUID();
+    hookTokens.set(agent.id, token);
+    const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
+    try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token, mode === "sandbox" ? "sh" : "node"); } catch { /* workspace not writable: status falls back to runner events */ }
+    broadcast({ type: "agent", agent: store.agent(agent.id) });
+    let mcpConfig: string | undefined;
+    try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
+    opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
+      const eventId = store.addEvent(agent.id, event);
+      if (event.type === "output" && !rateLimit && RATE_LIMIT_TEXT.test(event.data)) { rateLimit = { since: Date.now(), agentId: agent.id }; limitsChanged(); }
+      if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done") onDone(agent.id); else if (event.status === "idle") publishBranch(agent.id); }
+      broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
+    });
+    return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
+  };
+
   async function api(req: IncomingMessage, res: ServerResponse, path: string) {
     const method = req.method ?? "GET";
     if (path === "/api/health") return send(res, 200, { ok: true });
     if (path === "/api/pulls") return send(res, 200, store.pulls());
+    if (path === "/api/limits" && method === "GET") return send(res, 200, limitsView());
+    if (path === "/api/limits" && method === "POST") {
+      const { cap: wanted } = await readJson(req);
+      if (!Number.isInteger(wanted) || wanted < 1 || wanted > MAX_CAP) return send(res, 400, { error: `cap must be a whole number from 1 to ${MAX_CAP}` });
+      store.setSetting("workerCap", String(wanted));
+      drain();
+      return send(res, 200, limitsView());
+    }
+    if (path === "/api/limits/resume" && method === "POST") {
+      rateLimit = null;
+      drain();
+      return send(res, 200, limitsView());
+    }
     if (path === "/api/sandbox") return send(res, 200, { mode, message: opts.sandboxNotice ?? "" });
     if (path === "/api/projects" && method === "GET") return send(res, 200, store.projects());
     if (path === "/api/projects" && method === "POST") {
@@ -194,6 +277,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const ticket = moveTicket(project.path, project.id, String(id), column);
       if (!ticket) return send(res, 404, { error: "unknown ticket" });
       broadcast({ type: "tickets", projectId: project.id });
+      drain();
       return send(res, 200, ticket);
     }
     if (path === "/api/agents" && method === "GET") return send(res, 200, store.agents());
@@ -206,30 +290,14 @@ export async function startDaemon(opts: DaemonOptions) {
       const ticket = ticketId ? readTickets(project.path, project.id).find((t) => t.id === ticketId) : undefined;
       if (ticketId && !ticket) return send(res, 404, { error: "unknown ticket" });
       const lead = body.lead === true;
-      const identity = pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
-      const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
-      let workspace: Workspace | null = null;
-      if (ticket) {
-        try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
-        catch (err) { return send(res, 500, { error: `could not create clone: ${(err as Error).message}` }); }
+      if (ticket && !lead && (rateLimit || running() >= cap() || ticket.blocked)) {
+        const entry: Queued = { id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title };
+        queue.push(entry);
+        limitsChanged();
+        return send(res, 202, { queued: true, id: entry.id, position: queue.length });
       }
-      const cwd = workspace?.path ?? project.path;
-      const task = ticket ? taskFor(ticket) : undefined;
-      store.addAgent(agent);
-      if (workspace) agentBranch.set(agent.id, workspace.branch);
-      const token = randomUUID();
-      hookTokens.set(agent.id, token);
-      const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
-      try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token, mode === "sandbox" ? "sh" : "node"); } catch { /* workspace not writable: status falls back to runner events */ }
-      broadcast({ type: "agent", agent: store.agent(agent.id) });
-      let mcpConfig: string | undefined;
-      try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
-      opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
-        const eventId = store.addEvent(agent.id, event);
-        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done") onDone(agent.id); else if (event.status === "idle") publishBranch(agent.id); }
-        broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
-      });
-      return send(res, 201, { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } });
+      const r = spawn(project, name, ticket, lead);
+      return send(res, r.code, r.body);
     }
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
@@ -264,6 +332,7 @@ export async function startDaemon(opts: DaemonOptions) {
       store.deleteAgent(a.id);
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }
       broadcast({ type: "agent-deleted", agentId: a.id });
+      drain();
       return send(res, 200, { ok: true });
     }
     const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
@@ -309,6 +378,7 @@ export async function startDaemon(opts: DaemonOptions) {
           broadcast({ type: "agent-event", agentId: a.id, eventId: store.addEvent(a.id, ev), event: ev });
         }
         publishBranch(a.id);
+        drain();
         return send(res, 200, { ok: true });
       }
     }

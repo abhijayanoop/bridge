@@ -80,6 +80,13 @@ export function openStore(dataDir: string) {
     setActiveProject(id: string) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('activeProjectId', ?)").run(id);
     },
+    setting(key: string): string | null {
+      const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+      return row?.value ?? null;
+    },
+    setSetting(key: string, value: string) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+    },
     addAgent(a: AgentRow) {
       db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.activity ?? null);

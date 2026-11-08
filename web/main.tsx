@@ -74,7 +74,9 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, lead, inbox }
   );
 }
 
-function TopBar({ project, section, workers, inbox }: { inbox: number; project?: Project; section: string; workers: number }) {
+interface Limits { cap: number; max: number; running: number; rateLimited: { since: number; agentId: string } | null; queued: { id: string; ticketKey: string; blocked: boolean }[] }
+
+function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: number; project?: Project; section: string; limits: Limits; onCap: (cap: number) => void; onResume: () => void }) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line bg-bg px-5 py-2 text-[13px]">
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
@@ -84,8 +86,19 @@ function TopBar({ project, section, workers, inbox }: { inbox: number; project?:
       </nav>
       <span className="flex-1" />
       {inbox > 0 && <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5"><span className="font-semibold">{inbox}</span><span className="text-fg-3">in Inbox</span></span>}
+      {limits.rateLimited && (
+        <span role="alert" className="inline-flex h-8 items-center gap-2 rounded-lg border border-[#b45309] px-2.5 text-[#fbbf24]">
+          <span className="font-semibold">Rate limit hit</span><span className="text-fg-3">queue paused</span>
+          <button type="button" onClick={onResume} className="rounded-md border border-line px-2 py-0.5 text-fg hover:bg-surface">Resume</button>
+        </span>
+      )}
+      {limits.queued.length > 0 && <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5"><span className="font-semibold">{limits.queued.length}</span><span className="text-fg-3">queued</span></span>}
       <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5">
-        <span className="font-semibold">{workers}</span><span className="text-fg-3">/ 2 workers</span>
+        <span className="font-semibold">{limits.running}</span><span className="text-fg-3">/</span>
+        <select aria-label="Worker cap" value={limits.cap} onChange={(e) => onCap(Number(e.target.value))} className="rounded bg-transparent font-semibold text-fg">
+          {Array.from({ length: limits.max }, (_, i) => i + 1).map((n) => <option key={n} value={n} className="bg-bg">{n}</option>)}
+        </select>
+        <span className="text-fg-3">workers</span>
       </span>
     </header>
   );
@@ -181,6 +194,7 @@ function App() {
   const [pulls, setPulls] = useState<PullInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [section, setSection] = useState("Board");
+  const [limits, setLimits] = useState<Limits>({ cap: 2, max: 3, running: 0, rateLimited: null, queued: [] });
   const inbox = useInbox();
 
   useEffect(() => {
@@ -189,6 +203,7 @@ function App() {
       fetch("/api/active-project").then((r) => r.json()).then((p) => setActiveId(p.id)).catch(() => {});
       fetch("/api/agents").then((r) => r.json()).then(setAgents).catch(() => {});
       fetch("/api/pulls").then((r) => r.json()).then(setPulls).catch(() => {});
+      fetch("/api/limits").then((r) => r.json()).then(setLimits).catch(() => {});
     };
     load();
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
@@ -198,12 +213,12 @@ function App() {
 
   const project = projects.find((p) => p.id === activeId) ?? projects[0];
   const switchTo = (id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
-  const working = agents.filter((a) => a.status === "working").length;
+  const post = (path: string, body: unknown) => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()).then(setLimits).catch(() => {});
   return (
     <div className="flex h-full">
       <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar inbox={inbox.open} project={project} section={section} workers={working} />
+        <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} />
         <main className="flex-1 overflow-auto p-5">
           {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
