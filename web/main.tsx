@@ -2,6 +2,8 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { AgentsScreen, type AgentInfo } from "./agents.tsx";
+import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
+import { STATE_LABELS } from "../src/shared/avatar.ts";
 
 interface Project { id: string; name: string; path: string }
 
@@ -15,7 +17,22 @@ function Icon({ d }: { d: string }) {
   );
 }
 
-function Sidebar({ project, projects, section, onSelect, onSwitch }: { project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void }) {
+function LeadCard({ agent }: { agent?: AgentInfo }) {
+  if (!agent) return null;
+  const state = agent.avatarState ?? "idle";
+  return (
+    <div aria-label={`Lead agent ${agent.name}, ${STATE_LABELS[state as keyof typeof STATE_LABELS] ?? state}`} className="mt-auto flex items-center gap-3 rounded-xl border border-line bg-surface p-3">
+      <span className="p-1"><AgentAvatar shape={agent.shape ?? "circle"} color={agent.color ?? "#0A84FF"} state={state} size={40} lead name={agent.name} /></span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[13px] font-semibold">{agent.name}</span>
+        <span className="text-xs text-fg-2">{STATE_LABELS[state as keyof typeof STATE_LABELS] ?? state}</span>
+      </span>
+      <ThinkingOrb state={state} color={agent.color ?? "#0A84FF"} size={32} />
+    </div>
+  );
+}
+
+function Sidebar({ project, projects, section, onSelect, onSwitch, lead }: { project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void; lead?: AgentInfo }) {
   const [open, setOpen] = useState(false);
   return (
     <nav aria-label="Primary" className="flex w-60 flex-none flex-col gap-1 bg-bg p-3">
@@ -49,6 +66,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch }: { project?:
           <span className="flex-1">{n}</span>
         </button>
       ))}
+      <LeadCard agent={lead} />
     </nav>
   );
 }
@@ -79,7 +97,7 @@ const COLUMNS: { id: Column; name: string }[] = [
 ];
 const COLUMN_NAME = Object.fromEntries(COLUMNS.map((c) => [c.id, c.name.toLowerCase()]));
 
-function TicketCard({ t, onMove }: { t: Ticket; onMove: (id: string, c: Column) => void }) {
+function TicketCard({ t, onMove, agent }: { t: Ticket; onMove: (id: string, c: Column) => void; agent?: AgentInfo }) {
   const open = t.blockers.filter((b) => !b.done);
   const state = t.blocked ? `Blocked by ${open.map((b) => b.key).join(", ")}` : t.status || "no status";
   return (
@@ -106,7 +124,9 @@ function TicketCard({ t, onMove }: { t: Ticket; onMove: (id: string, c: Column) 
       )}
       <div className="flex items-center gap-2 pt-0.5 text-xs">
         {t.agent
-          ? <><span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-track text-[10px] font-semibold">{t.agent[0]!.toUpperCase()}</span><span className="font-semibold">{t.agent}</span></>
+          ? <>{agent
+              ? <AgentAvatar shape={agent.shape ?? "circle"} color={agent.color ?? "#0A84FF"} state={agent.avatarState ?? "idle"} size={20} lead={agent.lead} name={agent.name} />
+              : <span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-track text-[10px] font-semibold">{t.agent[0]!.toUpperCase()}</span>}<span className="font-semibold">{t.agent}</span></>
           : <><span aria-hidden="true" className="size-5 rounded-full border-[1.5px] border-dashed border-white/25" /><span className="font-semibold text-fg-2">Unassigned</span></>}
         <span className={`min-w-0 truncate ${t.blocked ? "font-medium text-fg" : "text-fg-2"}`}>{state}</span>
       </div>
@@ -114,7 +134,7 @@ function TicketCard({ t, onMove }: { t: Ticket; onMove: (id: string, c: Column) 
   );
 }
 
-function Board({ project }: { project?: Project }) {
+function Board({ project, agents }: { project?: Project; agents: AgentInfo[] }) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const id = project?.id;
   const load = () => {
@@ -143,7 +163,7 @@ function Board({ project }: { project?: Project }) {
               <h2 className="text-[13px] font-semibold">{c.name}</h2>
               <span className="text-xs text-fg-3">{cards.length}</span>
             </header>
-            {cards.map((t) => <TicketCard key={t.id} t={t} onMove={move} />)}
+            {cards.map((t) => <TicketCard key={t.id} t={t} onMove={move} agent={agents.find((a) => a.ticketId === t.id || (t.agent != null && a.name === t.agent))} />)}
           </section>
         );
       })}
@@ -174,11 +194,11 @@ function App() {
   const working = agents.filter((a) => a.status === "working").length;
   return (
     <div className="flex h-full">
-      <Sidebar project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
+      <Sidebar lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar project={project} section={section} workers={working} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : (
+          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
+import { STATE_LABELS } from "../src/shared/avatar.ts";
 
-export interface AgentInfo { id: string; name: string; status: string; ticketKey?: string | null; ticketTitle?: string | null }
+export interface AgentInfo { id: string; name: string; status: string; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; avatarState?: string }
 interface TicketOpt { id: string; key: string; title: string; column: string }
 
 const wsUrl = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
@@ -114,9 +116,11 @@ export function AgentsScreen({ projectId, agents }: { projectId?: string; agents
           {agents.map((a) => (
             <li key={a.id}>
               <button type="button" onClick={() => setOpenId(a.id)} className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-left hover:bg-surface-2">
+                <AgentAvatar shape={a.shape ?? "circle"} color={a.color ?? "#0A84FF"} state={a.avatarState ?? "idle"} size={40} lead={a.lead} name={a.name} />
                 <span className="font-semibold">{a.name}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-fg-2">{a.ticketKey ? `${a.ticketKey} · ${a.ticketTitle ?? ""}` : "no ticket"}</span>
-                <span className="font-mono text-xs text-fg-2">{a.status}</span>
+                <ThinkingOrb state={a.avatarState ?? "idle"} color={a.color ?? "#0A84FF"} size={32} />
+                <span className="w-28 text-right text-xs text-fg-2">{STATE_LABELS[(a.avatarState ?? "idle") as keyof typeof STATE_LABELS] ?? a.status}</span>
               </button>
             </li>
           ))}

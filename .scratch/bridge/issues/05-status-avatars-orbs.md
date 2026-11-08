@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Hooks report idle, working, blocked, waiting and done to the daemon
-- [ ] Eight avatar shapes and nine states render per the design, in the agent's colour; the lead is larger with a ring
-- [ ] The thinking-orb is a vendored, colour-tinted fork with the MIT licence retained, mapped to states per the spec
-- [ ] Reduced-motion preferences are respected
+- [x] Hooks report idle, working, blocked, waiting and done to the daemon
+- [x] Eight avatar shapes and nine states render per the design, in the agent's colour; the lead is larger with a ring
+- [x] The thinking-orb is a vendored, colour-tinted fork with the MIT licence retained, mapped to states per the spec
+- [x] Reduced-motion preferences are respected

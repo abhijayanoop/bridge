@@ -15,3 +15,37 @@
 
 html, body, #root { height: 100%; }
 body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-sans); font-size: 14px; line-height: 1.4; }
+
+/* Agent avatar animations, from the design system page. */
+.bav-fig, .bav-body, .bav-eyes-in, .bav-halo { transform-box: fill-box; transform-origin: center; }
+.bav-halo { opacity: 0; }
+@keyframes bav-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+@keyframes bav-blink { 0%, 88%, 100% { transform: scaleY(1); } 92% { transform: scaleY(.12); } }
+@keyframes bav-morph { 0%, 100% { transform: scale(1, 1); } 33% { transform: scale(1.05, .95); } 66% { transform: scale(.96, 1.04); } }
+@keyframes bav-drift { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
+@keyframes bav-scan { 0%, 100% { transform: translateX(-7px); } 50% { transform: translateX(7px); } }
+@keyframes bav-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes bav-wobble { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
+@keyframes bav-nod { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(4deg); } }
+@keyframes bav-halo { 0% { transform: scale(.95); opacity: .4; } 100% { transform: scale(1.45); opacity: 0; } }
+@keyframes bav-happy { 0%, 8% { transform: scaleY(1); } 14%, 34% { transform: scaleY(.3); } 42%, 100% { transform: scaleY(1); } }
+@keyframes bav-hop { 0%, 8% { transform: translateY(0); } 16% { transform: translateY(-6px); } 26%, 100% { transform: translateY(0); } }
+.s-idle .bav-body { animation: bav-breathe 4s ease-in-out infinite; }
+.s-idle .bav-eyes-in { animation: bav-blink 5s ease-in-out infinite; }
+.s-planning .bav-body { animation: bav-morph 3.2s ease-in-out infinite; }
+.s-planning .bav-eyes-in { animation: bav-drift 3.2s ease-in-out infinite; }
+.s-exploring .bav-eyes-in { animation: bav-scan 1.6s ease-in-out infinite; }
+.s-implementing .bav-fig { animation: bav-bob .6s ease-in-out infinite; }
+.s-implementing .bav-eyes-in { transform: scaleY(.8); }
+.s-debugging .bav-fig { animation: bav-wobble .8s ease-in-out infinite; }
+.s-debugging .bav-eyes-in { transform: scaleY(.4); }
+.s-composing .bav-fig { animation: bav-nod 2.4s ease-in-out infinite; }
+.s-composing .bav-eyes-in { transform: translateY(6px); }
+.s-listening .bav-halo { animation: bav-halo 1.8s ease-out infinite; }
+.s-blocked .bav-fig { opacity: .4; filter: saturate(.5); }
+.s-done .bav-fig { animation: bav-hop 4s ease-in-out infinite; }
+.s-done .bav-eyes-in { animation: bav-happy 4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bav * { animation: none !important; transition: none !important; }
+  .s-listening .bav-halo { opacity: .22; transform: scale(1.2); }
+}

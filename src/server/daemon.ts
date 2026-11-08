@@ -5,6 +5,8 @@ import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentEvent, AgentRunner } from "./agent-runner.ts";
 import { DEFAULT_WORKSPACE, openStore, type AgentRow, type Project } from "./db.ts";
+import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../shared/avatar.ts";
+import { writeHookConfig } from "./hooks.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -34,6 +36,10 @@ export async function startDaemon(opts: DaemonOptions) {
     const text = JSON.stringify(msg);
     for (const s of sockets) if (s.readyState === s.OPEN) s.send(text);
   };
+
+  /** Per-agent secret that lets an agent's hooks report status; never listed by the API. */
+  const hookTokens = new Map<string, string>();
+  let port = 0;
 
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
@@ -110,22 +116,48 @@ export async function startDaemon(opts: DaemonOptions) {
     }
     if (path === "/api/agents" && method === "GET") return send(res, 200, store.agents());
     if (path === "/api/agents" && method === "POST") {
-      const { projectId, name, ticket: ticketId } = await readJson(req);
+      const body = await readJson(req);
+      const { projectId, name, ticket: ticketId } = body;
       const project = store.projects().find((p) => p.id === projectId);
       if (!project) return send(res, 404, { error: "unknown project" });
       if (!name) return send(res, 400, { error: "name required" });
       const ticket = ticketId ? readTickets(project.path, project.id).find((t) => t.id === ticketId) : undefined;
       if (ticketId && !ticket) return send(res, 404, { error: "unknown ticket" });
-      const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null };
+      const lead = body.lead === true;
+      const identity = pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
+      const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
       const task = ticket ? `Work on ticket ${ticket.key}: ${ticket.title}. Read the ticket file ${ticket.file} first.` : undefined;
       store.addAgent(agent);
-      broadcast({ type: "agent", agent });
-      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task }, (event: AgentEvent) => {
+      const token = randomUUID();
+      hookTokens.set(agent.id, token);
+      const hook = { url: `http://127.0.0.1:${port}/api/agents/${agent.id}/hook`, token };
+      try { if (existsSync(project.path)) writeHookConfig(project.path, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
+      broadcast({ type: "agent", agent: store.agent(agent.id) });
+      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task, hook }, (event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
-        if (event.type === "status") store.setStatus(agent.id, event.status);
+        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); }
         broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
-      return send(res, 201, agent);
+      return send(res, 201, store.agent(agent.id));
+    }
+    const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
+    if (hm && method === "POST") {
+      const expected = hookTokens.get(hm[1]!);
+      if (!expected || req.headers["x-bridge-token"] !== expected) return send(res, 401, { error: "invalid token" });
+      const { status, activity, tool, command } = await readJson(req);
+      if (!(HOOK_STATUSES as readonly string[]).includes(status)) return send(res, 400, { error: "unknown status" });
+      const act = (ACTIVITIES as readonly string[]).includes(activity) ? activity : activityForTool(tool, command);
+      const ev: AgentEvent = { type: "status", status };
+      const prev = store.agent(hm[1]!);
+      if (!prev) return send(res, 404, { error: "unknown agent" });
+      // A tool call or prompt while blocked/waiting means the agent resumed; a done agent stays done.
+      if (prev.status === "done") return send(res, 200, { ok: true, ignored: true });
+      store.setStatus(prev.id, status, act);
+      const eventId = store.addEvent(prev.id, ev);
+      const agent = store.agent(prev.id);
+      broadcast({ type: "agent", agent });
+      broadcast({ type: "agent-event", agentId: prev.id, eventId, event: ev });
+      return send(res, 200, agent);
     }
     const m = path.match(/^\/api\/agents\/([^/]+)\/(events|stop)$/);
     if (m) {
@@ -178,7 +210,7 @@ export async function startDaemon(opts: DaemonOptions) {
 
   await new Promise<void>((r) => server.listen(opts.port ?? 0, "127.0.0.1", r));
   const addr = server.address();
-  const port = typeof addr === "object" && addr ? addr.port : 0;
+  port = typeof addr === "object" && addr ? addr.port : 0;
 
   return {
     port,

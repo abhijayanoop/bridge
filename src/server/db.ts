@@ -2,11 +2,12 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentEvent, AgentStatus } from "./agent-runner.ts";
+import { avatarState, type AvatarState } from "../shared/avatar.ts";
 
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
-export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null }
+export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; activity?: string | null; avatarState?: AvatarState }
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
 export function openStore(dataDir: string) {
@@ -26,10 +27,14 @@ export function openStore(dataDir: string) {
     db.exec(`ALTER TABLE projects ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE}'`);
   }
   const agentCols = (db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]).map((c) => c.name);
-  for (const c of ["ticket_id", "ticket_key", "ticket_title"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
+  for (const c of ["ticket_id", "ticket_key", "ticket_title", "shape", "color", "lead", "activity"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
   db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES (?, ?)").run(DEFAULT_WORKSPACE, "Default");
   const listProjects = () =>
     db.prepare("SELECT id, name, path, workspace_id AS workspaceId FROM projects ORDER BY rowid").all() as unknown as Project[];
+  const listAgents = (): AgentRow[] => {
+    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead"> & { lead: number | string | null })[];
+    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, avatarState: avatarState(r.status, r.activity) }));
+  };
   return {
     addProject(p: Omit<Project, "workspaceId"> & { workspaceId?: string }) {
       db.prepare("INSERT INTO projects (id, name, path, workspace_id) VALUES (?, ?, ?, ?)")
@@ -49,15 +54,17 @@ export function openStore(dataDir: string) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('activeProjectId', ?)").run(id);
     },
     addAgent(a: AgentRow) {
-      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null);
+      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.activity ?? null);
     },
-    setStatus(id: string, status: AgentStatus) {
-      db.prepare("UPDATE agents SET status = ? WHERE id = ?").run(status, id);
+    /** Sets the status; activity is kept only while working. */
+    setStatus(id: string, status: AgentStatus, activity?: string | null) {
+      db.prepare("UPDATE agents SET status = ?, activity = ? WHERE id = ?").run(status, status === "working" ? activity ?? null : null, id);
     },
-    agents(): AgentRow[] {
-      return db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle FROM agents ORDER BY rowid").all() as unknown as AgentRow[];
+    agent(id: string): AgentRow | undefined {
+      return listAgents().find((a) => a.id === id);
     },
+    agents: listAgents,
     addEvent(agentId: string, event: AgentEvent) {
       db.prepare("INSERT INTO events (agent_id, json) VALUES (?, ?)").run(agentId, JSON.stringify(event));
     },

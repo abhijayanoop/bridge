@@ -15,6 +15,8 @@ export interface AgentSpec {
   cwd?: string;
   /** Initial task text given to the agent, derived from the ticket. */
   task?: string;
+  /** Where the agent reports status (set by the daemon; the token authenticates it). */
+  hook?: { url: string; token: string };
 }
 
 /** Starts and stops agents and reports what they do. */
