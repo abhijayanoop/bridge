@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -94,11 +94,11 @@ describe("project registry via the public API", () => {
   it("records the ticket-to-repo relation: a ticket belongs to exactly one repo", async () => {
     const { daemon } = await boot();
     const a = (await call(`${daemon.url}/api/projects/open`, { path: repo("alpha") })).json;
-    const ok = await call(`${daemon.url}/api/projects/${a.id}/tickets`, { key: "01", title: "First" });
-    expect(ok.status).toBe(201);
-    expect(ok.json).toMatchObject({ repoId: a.id, key: "01" });
-    expect((await call(`${daemon.url}/api/projects/nope/tickets`, { key: "x", title: "y" })).status).toBe(404);
+    const dir = join(a.path, ".scratch", "f", "issues");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "01-first.md"), "# 01: First\n\n**Status:** ready-for-agent\n");
     const list = (await call(`${daemon.url}/api/projects/${a.id}/tickets`)).json as any[];
-    expect(list.map((t) => t.key)).toEqual(["01"]);
+    expect(list).toMatchObject([{ repoId: a.id, key: "01", title: "First" }]);
+    expect((await call(`${daemon.url}/api/projects/nope/tickets`)).status).toBe(404);
   });
 });

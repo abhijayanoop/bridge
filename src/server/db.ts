@@ -5,7 +5,6 @@ import type { AgentEvent, AgentStatus } from "./agent-runner.ts";
 
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
-export interface TicketRow { id: string; repoId: string; key: string; title: string }
 export const DEFAULT_WORKSPACE = "default";
 export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus }
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
@@ -16,7 +15,8 @@ export function openStore(dataDir: string) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, repo_id TEXT NOT NULL REFERENCES projects(id), key TEXT NOT NULL, title TEXT NOT NULL);
+    -- Tickets live in each repo's .scratch files; the early tickets table was a second source of truth.
+    DROP TABLE IF EXISTS tickets;
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, json TEXT NOT NULL);
@@ -45,12 +45,6 @@ export function openStore(dataDir: string) {
     },
     setActiveProject(id: string) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('activeProjectId', ?)").run(id);
-    },
-    addTicket(t: TicketRow) {
-      db.prepare("INSERT INTO tickets (id, repo_id, key, title) VALUES (?, ?, ?, ?)").run(t.id, t.repoId, t.key, t.title);
-    },
-    tickets(repoId: string): TicketRow[] {
-      return db.prepare("SELECT id, repo_id AS repoId, key, title FROM tickets WHERE repo_id = ? ORDER BY rowid").all(repoId) as unknown as TicketRow[];
     },
     addAgent(a: AgentRow) {
       db.prepare("INSERT INTO agents (id, project_id, name, status) VALUES (?, ?, ?, ?)").run(a.id, a.projectId, a.name, a.status);

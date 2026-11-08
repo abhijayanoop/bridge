@@ -4,7 +4,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentEvent, AgentRunner } from "./agent-runner.ts";
-import { DEFAULT_WORKSPACE, openStore } from "./db.ts";
+import { DEFAULT_WORKSPACE, openStore, type Project } from "./db.ts";
+import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
   dataDir: string;
@@ -32,6 +33,14 @@ export async function startDaemon(opts: DaemonOptions) {
   const broadcast = (msg: unknown) => {
     const text = JSON.stringify(msg);
     for (const s of sockets) if (s.readyState === s.OPEN) s.send(text);
+  };
+
+  const watchers = new Map<string, () => void>();
+  /** Pushes a "tickets" message when files under the repo's .scratch change. */
+  const watchProject = (p: Project) => {
+    if (watchers.has(p.id)) return;
+    const stop = watchTickets(p.path, () => broadcast({ type: "tickets", projectId: p.id }));
+    if (stop) watchers.set(p.id, stop);
   };
 
   const send = (res: ServerResponse, code: number, body: unknown) => {
@@ -69,6 +78,7 @@ export async function startDaemon(opts: DaemonOptions) {
         store.addProject(project);
         broadcast({ type: "project", project });
       }
+      watchProject(project);
       store.setActiveProject(project.id);
       broadcast({ type: "active-project", projectId: project.id });
       return send(res, created ? 201 : 200, project);
@@ -82,14 +92,21 @@ export async function startDaemon(opts: DaemonOptions) {
         broadcast({ type: "active-project", projectId: project.id });
         return send(res, 200, project);
       }
-      if (pm[2] === "tickets" && method === "GET") return send(res, 200, store.tickets(project.id));
-      if (pm[2] === "tickets" && method === "POST") {
-        const { key, title } = await readJson(req);
-        if (!key || !title) return send(res, 400, { error: "key and title required" });
-        const ticket = { id: randomUUID(), repoId: project.id, key, title };
-        store.addTicket(ticket);
-        return send(res, 201, ticket);
+      if (pm[2] === "tickets" && method === "GET") {
+        watchProject(project);
+        return send(res, 200, readTickets(project.path, project.id));
       }
+    }
+    const tm = path.match(/^\/api\/projects\/([^/]+)\/tickets\/status$/);
+    if (tm && method === "POST") {
+      const project = store.projects().find((p) => p.id === tm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      const { ticket: id, column } = await readJson(req);
+      if (!(COLUMNS as readonly string[]).includes(column)) return send(res, 400, { error: "unknown column" });
+      const ticket = moveTicket(project.path, project.id, String(id), column);
+      if (!ticket) return send(res, 404, { error: "unknown ticket" });
+      broadcast({ type: "tickets", projectId: project.id });
+      return send(res, 200, ticket);
     }
     if (path === "/api/agents" && method === "GET") return send(res, 200, store.agents());
     if (path === "/api/agents" && method === "POST") {
@@ -146,6 +163,7 @@ export async function startDaemon(opts: DaemonOptions) {
     port,
     url: `http://127.0.0.1:${port}`,
     async close() {
+      for (const stop of watchers.values()) stop();
       for (const s of sockets) s.terminate();
       wss.close();
       await new Promise<void>((r) => server.close(() => r()));
