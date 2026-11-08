@@ -27,6 +27,14 @@ if (await healthy()) {
   console.log(`Bridge started at ${url}`);
 }
 
+// Register (or select) the requested repo: first non-flag argument, else the current folder.
+const target = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? process.cwd();
+const opened = await fetch(`${url}/api/projects/open`, {
+  method: "POST", body: JSON.stringify({ path: target }),
+}).catch(() => undefined);
+if (opened?.ok) console.log(`Project: ${(await opened.json()).path}`);
+else console.error(`Could not open ${target} as a project.`);
+
 if (!process.argv.includes("--no-open")) {
   const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
     : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];

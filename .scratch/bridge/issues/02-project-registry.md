@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Opening a repo registers it and it appears in the project switcher
-- [ ] Projects persist across daemon restarts
-- [ ] A second launch reuses the running daemon and adds or selects the project
-- [ ] The data model allows many repos per workspace, each ticket belonging to one repo
+- [x] Opening a repo registers it and it appears in the project switcher
+- [x] Projects persist across daemon restarts
+- [x] A second launch reuses the running daemon and adds or selects the project
+- [x] The data model allows many repos per workspace, each ticket belonging to one repo

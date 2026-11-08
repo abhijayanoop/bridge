@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentEvent, AgentRunner } from "./agent-runner.ts";
-import { openStore } from "./db.ts";
+import { DEFAULT_WORKSPACE, openStore } from "./db.ts";
 
 export interface DaemonOptions {
   dataDir: string;
@@ -50,6 +50,46 @@ export async function startDaemon(opts: DaemonOptions) {
       store.addProject(project);
       broadcast({ type: "project", project });
       return send(res, 201, project);
+    }
+    if (path === "/api/workspaces" && method === "GET") return send(res, 200, store.workspaces());
+    if (path === "/api/active-project" && method === "GET") {
+      const id = store.activeProjectId();
+      return send(res, 200, store.projects().find((p) => p.id === id) ?? { id: null });
+    }
+    if (path === "/api/projects/open" && method === "POST") {
+      const { path: given } = await readJson(req);
+      if (typeof given !== "string" || !given) return send(res, 400, { error: "path required" });
+      const abs = resolve(given);
+      if (!existsSync(abs) || !statSync(abs).isDirectory()) return send(res, 400, { error: "not a directory" });
+      const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
+      let project = store.projects().find((p) => key(p.path) === key(abs));
+      const created = !project;
+      if (!project) {
+        project = { id: randomUUID(), name: basename(abs) || abs, path: abs, workspaceId: DEFAULT_WORKSPACE };
+        store.addProject(project);
+        broadcast({ type: "project", project });
+      }
+      store.setActiveProject(project.id);
+      broadcast({ type: "active-project", projectId: project.id });
+      return send(res, created ? 201 : 200, project);
+    }
+    const pm = path.match(/^\/api\/projects\/([^/]+)\/(select|tickets)$/);
+    if (pm) {
+      const project = store.projects().find((p) => p.id === pm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      if (pm[2] === "select" && method === "POST") {
+        store.setActiveProject(project.id);
+        broadcast({ type: "active-project", projectId: project.id });
+        return send(res, 200, project);
+      }
+      if (pm[2] === "tickets" && method === "GET") return send(res, 200, store.tickets(project.id));
+      if (pm[2] === "tickets" && method === "POST") {
+        const { key, title } = await readJson(req);
+        if (!key || !title) return send(res, 400, { error: "key and title required" });
+        const ticket = { id: randomUUID(), repoId: project.id, key, title };
+        store.addTicket(ticket);
+        return send(res, 201, ticket);
+      }
     }
     if (path === "/api/agents" && method === "GET") return send(res, 200, store.agents());
     if (path === "/api/agents" && method === "POST") {
