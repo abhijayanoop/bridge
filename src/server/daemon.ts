@@ -21,7 +21,9 @@ export const MAX_CAP = 3;
 /** What an agent's terminal prints when the plan's usage limit is hit. Narrow on purpose: code that merely mentions rate limits must not pause the queue. */
 const RATE_LIMIT_TEXT = /usage limit reached|(?:5-hour|weekly|session|rate) limit reached|hit your (?:\w+ )?limit/i;
 
-interface Queued { id: string; projectId: string; name: string; ticketId: string; ticketKey: string; ticketTitle: string }
+interface Queued { id: string; projectId: string; name: string; ticketId: string; ticketKey: string; ticketTitle: string;
+  /** Why starting it failed (e.g. the clone). It stays queued and is retried when the user resumes. */
+  error?: string }
 
 export interface DaemonOptions {
   dataDir: string;
@@ -167,9 +169,10 @@ export async function startDaemon(opts: DaemonOptions) {
       const q = queue[i]!;
       const { project, ticket } = ticketOf(q);
       if (!project || !ticket) { queue.splice(i, 1); continue; }
-      if (ticket.blocked) { i++; continue; }
-      queue.splice(i, 1);
-      spawn(project, q.name, ticket, false);
+      if (ticket.blocked || q.error) { i++; continue; }
+      const r = spawn(project, q.name, ticket, false);
+      if (r.code === 201) queue.splice(i, 1);
+      else { q.error = String((r.body as { error?: string }).error ?? "could not start"); i++; }
     }
     limitsChanged();
   }
@@ -218,6 +221,7 @@ export async function startDaemon(opts: DaemonOptions) {
     }
     if (path === "/api/limits/resume" && method === "POST") {
       rateLimit = null;
+      for (const q of queue) delete q.error;
       drain();
       return send(res, 200, limitsView());
     }

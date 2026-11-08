@@ -74,7 +74,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, lead, inbox }
   );
 }
 
-interface Limits { cap: number; max: number; running: number; rateLimited: { since: number; agentId: string } | null; queued: { id: string; ticketKey: string; blocked: boolean }[] }
+interface Limits { cap: number; max: number; running: number; rateLimited: { since: number; agentId: string } | null; queued: { id: string; ticketKey: string; blocked: boolean; error?: string }[] }
 
 function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: number; project?: Project; section: string; limits: Limits; onCap: (cap: number) => void; onResume: () => void }) {
   return (
@@ -86,6 +86,12 @@ function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: n
       </nav>
       <span className="flex-1" />
       {inbox > 0 && <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5"><span className="font-semibold">{inbox}</span><span className="text-fg-3">in Inbox</span></span>}
+      {!limits.rateLimited && limits.queued.some((q) => q.error) && (
+        <span role="alert" className="inline-flex h-8 items-center gap-2 rounded-lg border border-[#b45309] px-2.5 text-[#fbbf24]">
+          <span className="font-semibold">Could not start {limits.queued.filter((q) => q.error).map((q) => q.ticketKey).join(", ")}</span>
+          <button type="button" onClick={onResume} className="rounded-md border border-line px-2 py-0.5 text-fg hover:bg-surface">Retry</button>
+        </span>
+      )}
       {limits.rateLimited && (
         <span role="alert" className="inline-flex h-8 items-center gap-2 rounded-lg border border-[#b45309] px-2.5 text-[#fbbf24]">
           <span className="font-semibold">Rate limit hit</span><span className="text-fg-3">queue paused</span>

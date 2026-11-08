@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -174,5 +175,26 @@ describe("worker cap and queue via the public API", () => {
     expect((await start(undefined, { lead: true })).status).toBe(201);
     expect((await start(undefined)).status).toBe(201);
     expect((await limits()).running).toBe(2);
+  });
+
+  it("a queued ticket whose clone fails stays in the queue with the error, and Resume retries it", async () => {
+    const { repo, dir, start, specs, limits, finish, post } = await boot();
+    const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: repo });
+    git("init", "-b", "main"); git("add", "-A"); git("commit", "-m", "init");
+    const a = (await start("f/01")).json;
+    await start("f/02");
+    await start("f/03");
+    // Make the next clone fail: the clones directory is replaced by a plain file.
+    rmSync(join(dir, "data", "clones"), { recursive: true, force: true });
+    writeFileSync(join(dir, "data", "clones"), "in the way");
+    await finish(a.id);
+    await expect.poll(async () => (await limits()).queued[0]?.error).toMatch(/clone/);
+    expect(specs).toHaveLength(2);
+    // Not retried on every change, but retried when the user resumes.
+    rmSync(join(dir, "data", "clones"), { force: true });
+    expect(specs).toHaveLength(2);
+    await post("/api/limits/resume", {});
+    expect(specs).toHaveLength(3);
+    expect((await limits()).queued).toEqual([]);
   });
 });
