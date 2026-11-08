@@ -44,6 +44,8 @@ export interface DaemonOptions {
   agentHost?: string;
   /** Opens a pull request when an agent finishes a ticket. Omitted means no pull requests (tests, fake agent). */
   github?: GitHub;
+  /** How often open pull requests are checked on GitHub, in ms. Default 30 seconds; 0 turns polling off. */
+  pullPollMs?: number;
 }
 
 const MIME: Record<string, string> = {
@@ -122,14 +124,33 @@ export async function startDaemon(opts: DaemonOptions) {
     fileAt: (path, branch, file) => workspaces.fileAt(path, branch, file),
     pulls: () => store.pulls(),
     addPull: (p) => store.addPull(p),
+    updatePull: (p) => store.updatePull(p),
+    mergeLocal: (project, branch, title) => {
+      // Ticket cards live as Status lines in the working copy; the merge puts them back, so re-apply every card's column.
+      const columns = readTickets(project.path, project.id).map((t) => [t.id, t.column] as const);
+      const r = workspaces.mergeLocal(project.path, branch, title);
+      for (const [id, column] of columns) moveTicket(project.path, project.id, id, column);
+      return r;
+    },
+    ticketByKey: (project, key) => readTickets(project.path, project.id).find((t) => t.key === key),
     say: (agentId, text) => {
       const event: AgentEvent = { type: "output", data: `\r\n[Bridge] ${text}\r\n` };
       broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
     },
     broadcast,
+    setColumn: (project, ticketId, column) => {
+      if (moveTicket(project.path, project.id, ticketId, column)) broadcast({ type: "tickets", projectId: project.id });
+    },
   });
   /** An agent finished its ticket: publish its branch, open its pull request, and give its slot to the queue. */
   const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) pulls.raise(agentId, branch); drain(); };
+
+  /** Checks open pull requests on GitHub now and then, so cards move to Done when you merge on GitHub. */
+  let polling = false;
+  const pollTimer = opts.github && opts.pullPollMs !== 0
+    ? setInterval(() => { if (polling) return; polling = true; void pulls.poll().catch(() => {}).finally(() => { polling = false; drain(); }); }, opts.pullPollMs ?? 30_000)
+    : undefined;
+  pollTimer?.unref();
 
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
@@ -211,6 +232,12 @@ export async function startDaemon(opts: DaemonOptions) {
     const method = req.method ?? "GET";
     if (path === "/api/health") return send(res, 200, { ok: true });
     if (path === "/api/pulls") return send(res, 200, store.pulls());
+    const pullMerge = path.match(/^\/api\/pulls\/([^/]+)\/merge$/);
+    if (pullMerge && method === "POST") {
+      const r = await pulls.merge(pullMerge[1]!);
+      if (r.code === 200) drain();
+      return send(res, r.code, r.body);
+    }
     if (path === "/api/limits" && method === "GET") return send(res, 200, limitsView());
     if (path === "/api/limits" && method === "POST") {
       const { cap: wanted } = await readJson(req);
@@ -465,6 +492,7 @@ export async function startDaemon(opts: DaemonOptions) {
     port,
     url: `http://127.0.0.1:${port}`,
     async close() {
+      clearInterval(pollTimer);
       for (const stop of watchers.values()) stop();
       for (const s of sockets) s.terminate();
       server.closeAllConnections();

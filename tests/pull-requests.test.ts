@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startDaemon } from "../src/server/daemon.ts";
 import { createFakeAgentRunner } from "../src/server/fake-agent.ts";
 import { createGitHubCli, type GitHub, type PullResult } from "../src/server/github.ts";
@@ -16,22 +16,28 @@ const git = (cwd: string, ...args: string[]) =>
 
 interface Call { repoPath: string; branch: string; title: string; body: string }
 
-async function boot(result?: (c: Call) => PullResult) {
+interface BootOptions { github?: Partial<GitHub>; pollMs?: number }
+
+async function boot(result?: (c: Call) => PullResult, options: BootOptions = {}) {
   const calls: Call[] = [];
   const github: GitHub = {
     createPullRequest: async (c) => {
       calls.push(c);
       return result ? result(c) : { ok: true, url: `https://github.com/o/r/pull/${calls.length}`, number: calls.length };
     },
+    pullState: async () => "open",
+    mergePullRequest: async () => ({ ok: true }),
+    ...options.github,
   };
   const dir = mkdtempSync(join(tmpdir(), "bridge-pr-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const repo = join(dir, "repo");
   mkdirSync(join(repo, ".scratch", "f", "issues"), { recursive: true });
   writeFileSync(join(repo, ".scratch", "f", "issues", "01-add-thing.md"), "# 01: Add thing\n\n**Status:** ready-for-agent\n\n- [ ] it works\n");
+  writeFileSync(join(repo, ".scratch", "f", "issues", "02-other.md"), "# 02: Other\n\n**Status:** ready-for-agent\n");
   writeFileSync(join(repo, "app.txt"), "hello\n");
   git(repo, "init", "-b", "main"); git(repo, "add", "-A"); git(repo, "commit", "-m", "init");
-  const daemon = await startDaemon({ dataDir: join(dir, "data"), runner: createFakeAgentRunner([]), github });
+  const daemon = await startDaemon({ dataDir: join(dir, "data"), runner: createFakeAgentRunner([]), github, pullPollMs: options.pollMs ?? 0 });
   cleanups.push(() => daemon.close());
   const call = async (method: string, path: string, body?: unknown) => {
     const r = await fetch(daemon.url + path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -51,7 +57,9 @@ async function boot(result?: (c: Call) => PullResult) {
     git(agent.workspace.path, "commit", "-m", `Add ${file}`);
   };
   const events = async (agent: any) => JSON.stringify((await call("GET", `/api/agents/${agent.id}/events`)).json);
-  return { call, startAgent, finish, commit, events, calls, repo };
+  const ticketStatus = () =>
+    readFileSync(join(repo, ".scratch", "f", "issues", "01-add-thing.md"), "utf8").split(/\r?\n/).find((l) => l.startsWith("**Status:**"))!.slice("**Status:**".length).trim();
+  return { call, startAgent, finish, commit, events, calls, repo, ticketStatus };
 }
 
 describe("pull requests", { timeout: 40_000 }, () => {
@@ -72,6 +80,73 @@ describe("pull requests", { timeout: 40_000 }, () => {
     await t.finish(agent);
     await new Promise((r) => setTimeout(r, 200));
     expect(t.calls).toHaveLength(1);
+  });
+
+  it("moves the ticket's card to Review when its pull request opens", async () => {
+    const t = await boot();
+    const agent = await t.startAgent();
+    expect(t.ticketStatus()).toBe("ready-for-agent");
+    t.commit(agent);
+    await t.finish(agent);
+    await expect.poll(() => t.ticketStatus()).toBe("in-review");
+  });
+
+  it("polls GitHub: a merged pull request moves the card to Done, a closed one is marked closed and stays in Review", async () => {
+    let state: "open" | "merged" | "closed" | null = "open";
+    const asked: number[] = [];
+    const t = await boot(undefined, { pollMs: 20, github: { pullState: async ({ number }) => { asked.push(number); return state; } } });
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(() => t.ticketStatus()).toBe("in-review");
+    await expect.poll(() => asked.length).toBeGreaterThan(1);
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+    state = null; // GitHub unreachable: nothing changes
+    await new Promise((r) => setTimeout(r, 80));
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+    state = "closed";
+    await expect.poll(async () => (await t.call("GET", "/api/pulls")).json[0].state).toBe("closed");
+    expect(t.ticketStatus()).toBe("in-review");
+
+    const m = await boot(undefined, { pollMs: 20, github: { pullState: async () => "merged" } });
+    const b = await m.startAgent();
+    await m.finish(b);
+    await expect.poll(() => m.ticketStatus()).toBe("done");
+    expect((await m.call("GET", "/api/pulls")).json[0].state).toBe("merged");
+  });
+
+  it("merges only when the user presses Merge: the pull request is merged on GitHub and the card moves to Done", async () => {
+    const merged: { repoPath: string; number: number }[] = [];
+    const t = await boot(undefined, { github: { mergePullRequest: async (i) => { merged.push(i); return { ok: true }; } } });
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(async () => (await t.call("GET", "/api/pulls")).json.length).toBe(1);
+    // Opening a pull request never merges it.
+    expect(merged).toEqual([]);
+    expect(t.ticketStatus()).toBe("in-review");
+    const [pull] = (await t.call("GET", "/api/pulls")).json;
+    const r = await t.call("POST", `/api/pulls/${pull.id}/merge`, {});
+    expect(r.status).toBe(200);
+    expect(r.json.state).toBe("merged");
+    expect(merged).toEqual([{ repoPath: t.repo, number: 1 }]);
+    expect(t.ticketStatus()).toBe("done");
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("merged");
+    // A second press does nothing.
+    expect((await t.call("POST", `/api/pulls/${pull.id}/merge`, {})).status).toBe(409);
+    expect(merged).toHaveLength(1);
+    expect((await t.call("POST", "/api/pulls/nope/merge", {})).status).toBe(404);
+  });
+
+  it("a failed merge is reported and leaves the pull request open", async () => {
+    const t = await boot(undefined, { github: { mergePullRequest: async () => ({ ok: false, reason: "Pull request is not mergeable: conflicts" }) } });
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(async () => (await t.call("GET", "/api/pulls")).json.length).toBe(1);
+    const [pull] = (await t.call("GET", "/api/pulls")).json;
+    const r = await t.call("POST", `/api/pulls/${pull.id}/merge`, {});
+    expect(r.status).toBe(502);
+    expect(r.json.error).toContain("not mergeable");
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+    expect(t.ticketStatus()).toBe("in-review");
   });
 
   it("keeps the pull request after the agent is deleted", async () => {
@@ -124,6 +199,67 @@ describe("pull requests", { timeout: 40_000 }, () => {
   });
 });
 
+describe("local-only repos (no GitHub remote)", { timeout: 40_000 }, () => {
+  const noRemote = () => ({ ok: false as const, skipped: true, reason: "this repo has no GitHub remote, so no pull request was opened" });
+  async function finished() {
+    const mergePullRequest = vi.fn(async () => ({ ok: true as const }));
+    const t = await boot(noRemote, { github: { mergePullRequest } });
+    const agent = await t.startAgent();
+    t.commit(agent);
+    await t.finish(agent);
+    await expect.poll(async () => (await t.call("GET", "/api/pulls")).json.length).toBe(1);
+    const [pull] = (await t.call("GET", "/api/pulls")).json;
+    const projectId = (await t.call("GET", "/api/projects")).json[0].id as string;
+    const cardOf = async (key: string) => (await t.call("GET", `/api/projects/${projectId}/tickets`)).json.find((x: any) => x.key === key);
+    return { ...t, agent, pull, projectId, cardOf, mergePullRequest, merge: () => t.call("POST", `/api/pulls/${pull.id}/merge`, {}) };
+  }
+
+  it("lists the branch as a local review item, moves the card to Review, and merges the branch locally on approval", async () => {
+    const t = await finished();
+    expect(t.pull).toMatchObject({ local: true, state: "open", ticketKey: "01", branch: t.agent.workspace.branch, url: "" });
+    expect(t.ticketStatus()).toBe("in-review");
+    expect(await t.events(t.agent)).toContain("Merge it locally from the Review screen");
+    // Another ticket the user parked in Review keeps its column through the merge.
+    await t.call("POST", `/api/projects/${t.projectId}/tickets/status`, { ticket: "f/02", column: "review" });
+    expect(git(t.repo, "log", "--format=%s", "-1")).toBe("init");
+
+    const r = await t.merge();
+    expect(r.status).toBe(200);
+    expect(r.json.state).toBe("merged");
+    expect(git(t.repo, "show", "HEAD:hello.py")).toBe("print('hi')");
+    expect(git(t.repo, "log", "--format=%s", "-1")).toBe("Merge 01: Add thing");
+    expect(git(t.repo, "branch", "--show-current")).toBe("main");
+    expect(t.ticketStatus()).toBe("done");
+    expect((await t.cardOf("02")).column).toBe("review");
+    expect(t.mergePullRequest).not.toHaveBeenCalled();
+    expect((await t.merge()).status).toBe(409);
+  });
+
+  it("refuses to merge into a working copy with uncommitted changes", async () => {
+    const t = await finished();
+    writeFileSync(join(t.repo, "app.txt"), "my work in progress\n");
+    const r = await t.merge();
+    expect(r.status).toBe(409);
+    expect(r.json.error).toContain("app.txt");
+    expect(readFileSync(join(t.repo, "app.txt"), "utf8")).toBe("my work in progress\n");
+    expect(() => git(t.repo, "show", "HEAD:hello.py")).toThrow();
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+  });
+
+  it("a conflicting merge is undone and reported, leaving the working copy as it was", async () => {
+    const t = await finished();
+    writeFileSync(join(t.repo, "hello.py"), "print('different')\n");
+    git(t.repo, "add", "hello.py"); git(t.repo, "commit", "-m", "conflicting change");
+    const r = await t.merge();
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatch(/conflict/i);
+    expect(git(t.repo, "diff", "--name-only", "HEAD", "--", ".", ":!.scratch")).toBe("");
+    expect(readFileSync(join(t.repo, "hello.py"), "utf8").replace(/\r\n/g, "\n")).toBe("print('different')\n");
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+    expect(t.ticketStatus()).toBe("in-review");
+  });
+});
+
 describe("GitHub CLI adapter", () => {
   function fakeCli(reply: (cmd: string, args: string[]) => { code: number; stdout?: string; stderr?: string }) {
     const calls: { cmd: string; args: string[]; cwd?: string }[] = [];
@@ -153,6 +289,25 @@ describe("GitHub CLI adapter", () => {
     expect(t.calls.find((c) => c.args[1] === "create")!.args).toEqual(["pr", "create", "--head", "ticket/20-x", "--base", "main", "--title", "20: X", "--body", "body"]);
     expect(t.calls.every((c) => c.cwd === "/repo")).toBe(true);
     expect(t.calls.some((c) => c.args.includes("merge"))).toBe(false);
+  });
+
+  it("reads a pull request's state, and answers null when GitHub cannot be read", async () => {
+    for (const [out, state] of [["OPEN\n", "open"], ["MERGED\n", "merged"], ["CLOSED\n", "closed"]] as const) {
+      const t = fakeCli(() => ({ code: 0, stdout: out }));
+      expect(await t.gh.pullState({ repoPath: "/repo", number: 7 })).toBe(state);
+      expect(t.calls[0]).toMatchObject({ cmd: "gh", args: ["pr", "view", "7", "--json", "state", "-q", ".state"], cwd: "/repo" });
+    }
+    expect(await fakeCli(() => ({ code: 1, stderr: "gh: not logged in" })).gh.pullState({ repoPath: "/repo", number: 7 })).toBeNull();
+    expect(await fakeCli(() => ({ code: 0, stdout: "SOMETHING\n" })).gh.pullState({ repoPath: "/repo", number: 7 })).toBeNull();
+  });
+
+  it("merges with a plain merge commit, never forced and never as admin, and reports a refusal", async () => {
+    const ok = fakeCli(() => ({ code: 0 }));
+    expect(await ok.gh.mergePullRequest({ repoPath: "/repo", number: 7 })).toEqual({ ok: true });
+    expect(ok.calls).toEqual([{ cmd: "gh", args: ["pr", "merge", "7", "--merge"], cwd: "/repo" }]);
+    expect(ok.calls[0]!.args.join(" ")).not.toMatch(/--admin|--force|--auto|--delete-branch/);
+    const refused = fakeCli(() => ({ code: 1, stderr: "Pull request #7 is not mergeable: the merge commit cannot be cleanly created.\n" }));
+    expect(await refused.gh.mergePullRequest({ repoPath: "/repo", number: 7 })).toEqual({ ok: false, reason: "Pull request #7 is not mergeable: the merge commit cannot be cleanly created." });
   });
 
   it("reuses an existing pull request without pushing again", async () => {

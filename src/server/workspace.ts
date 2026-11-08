@@ -89,6 +89,41 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
     fileAt(projectPath: string, branch: string, file: string): string {
       try { return execFileSync("git", ["show", `${branch}:${file}`], { cwd: projectPath, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; }
     },
+    /**
+     * Merges a ticket branch into the branch the user has checked out (no fast-forward, so the merge shows in history).
+     * Refuses when tracked files have uncommitted changes, except Bridge's own bookkeeping: a `Status:` line in a
+     * ticket file under `.scratch/`, which is put back first (the caller re-applies it). A conflict is aborted.
+     */
+    mergeLocal(projectPath: string, branch: string, message: string): { ok: true } | { ok: false; reason: string } {
+      const fail = (reason: string) => ({ ok: false as const, reason });
+      if (!isGitRepo(projectPath)) return fail("this project is not a git repository");
+      let current: string;
+      try { current = git(projectPath, "symbolic-ref", "--short", "HEAD"); } catch { return fail("your working copy is on a detached HEAD; check out a branch first"); }
+      if (current === branch) return fail(`${branch} is the branch you have checked out`);
+      try { git(projectPath, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`); } catch { return fail(`branch ${branch} is not in your repo`); }
+
+      const dirty = git(projectPath, "diff", "--name-only", "HEAD").split(/\r?\n/).filter(Boolean);
+      const bookkeeping: string[] = [];
+      for (const file of dirty) {
+        const changed = file.startsWith(".scratch/")
+          ? git(projectPath, "diff", "-U0", "HEAD", "--", file).split(/\r?\n/).filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l))
+          : ["x"];
+        if (changed.length && changed.every((l) => /^[+-](\*\*)?Status:/i.test(l))) bookkeeping.push(file);
+        else return fail(`you have uncommitted changes in ${file}; commit or stash them before merging`);
+      }
+      if (bookkeeping.length) git(projectPath, "checkout", "HEAD", "--", ...bookkeeping);
+
+      let who: string[] = [];
+      try { git(projectPath, "config", "user.email"); } catch { who = ["-c", "user.name=Bridge", "-c", "user.email=bridge@localhost"]; }
+      try {
+        git(projectPath, ...who, "merge", "--no-ff", "-m", `Merge ${message}`, branch);
+        return { ok: true };
+      } catch (err) {
+        try { git(projectPath, "merge", "--abort"); } catch { /* nothing to abort */ }
+        const detail = String((err as { stdout?: string }).stdout ?? "").split(/\r?\n/).find((l) => /conflict/i.test(l));
+        return fail(`merging ${branch} hit a conflict${detail ? ` (${detail.trim()})` : ""}; it was undone, resolve it in your repo`);
+      }
+    },
     /** Returns null when the project is not a git repository (the agent then works in place). */
     prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {
       if (!isGitRepo(input.projectPath)) return null;

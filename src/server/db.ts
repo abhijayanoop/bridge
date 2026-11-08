@@ -31,6 +31,8 @@ export interface Approval {
 export interface Pull {
   id: string; agentId: string; projectId: string; ticketKey: string; title: string; branch: string;
   url: string; number: number; state: "open" | "merged" | "closed"; createdAt: number;
+  /** A repo with no GitHub remote: there is no pull request, only the branch, merged locally on approval. */
+  local?: boolean;
 }
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
@@ -142,6 +144,9 @@ export function openStore(dataDir: string) {
     },
     addPull(p: Pull) {
       db.prepare("INSERT INTO pulls (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM pulls))").run(p.id, JSON.stringify(p));
+    },
+    updatePull(p: Pull) {
+      db.prepare("UPDATE pulls SET json = ? WHERE id = ?").run(JSON.stringify(p), p.id);
     },
     /** Newest first. */
     pulls(): Pull[] {

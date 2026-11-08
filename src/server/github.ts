@@ -5,9 +5,15 @@ export type PullResult =
   /** `skipped` means there is nothing to do (no GitHub remote), as opposed to a failure. */
   | { ok: false; reason: string; skipped?: boolean };
 
-/** Opens pull requests. Bridge only ever opens them; merging is for the user. */
+export type PullState = "open" | "merged" | "closed";
+
+/** Opens and tracks pull requests. Agents never merge; Bridge merges only when the user presses Merge. */
 export interface GitHub {
   createPullRequest(input: { repoPath: string; branch: string; title: string; body: string }): Promise<PullResult>;
+  /** The pull request's state on GitHub, or null when it cannot be read (offline, not logged in). */
+  pullState(input: { repoPath: string; number: number }): Promise<PullState | null>;
+  /** Merges with a merge commit. Only called for the user's Merge button. */
+  mergePullRequest(input: { repoPath: string; number: number }): Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 const oneLine = (s: string) => s.trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "";
@@ -43,6 +49,15 @@ export function createGitHubCli(run: CommandRunner = nodeCommandRunner, gh = "gh
       const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
       if (created.code !== 0 || !number) return { ok: false, reason: `gh pr create failed: ${oneLine(created.stderr) || oneLine(created.stdout) || `exit ${created.code}`}` };
       return { ok: true, url, number };
+    },
+    async pullState({ repoPath, number }) {
+      const r = await run(gh, ["pr", "view", String(number), "--json", "state", "-q", ".state"], { cwd: repoPath });
+      const state = oneLine(r.stdout).toLowerCase();
+      return r.code === 0 && (state === "open" || state === "merged" || state === "closed") ? state : null;
+    },
+    async mergePullRequest({ repoPath, number }) {
+      const r = await run(gh, ["pr", "merge", String(number), "--merge"], { cwd: repoPath });
+      return r.code === 0 ? { ok: true } : { ok: false, reason: oneLine(r.stderr) || oneLine(r.stdout) || `gh pr merge failed: exit ${r.code}` };
     },
   };
 }
