@@ -13,6 +13,8 @@ import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./ap
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
 import { createPullRaiser } from "./pull-requests.ts";
+import { createReviewStage } from "./review-stage.ts";
+import type { Reviewer } from "./reviewer.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets, type Ticket } from "./tickets.ts";
 
 /** Workers that may run at once: 2 by default, raisable to 3 (the Pro plan's limits make more costly). */
@@ -44,6 +46,8 @@ export interface DaemonOptions {
   agentHost?: string;
   /** Opens a pull request when an agent finishes a ticket. Omitted means no pull requests (tests, fake agent). */
   github?: GitHub;
+  /** Reviews a finished branch for standards and spec before its pull request opens. Omitted means no review stage. */
+  reviewer?: Reviewer;
   /** How often open pull requests are checked on GitHub, in ms. Default 30 seconds; 0 turns polling off. */
   pullPollMs?: number;
 }
@@ -142,8 +146,38 @@ export async function startDaemon(opts: DaemonOptions) {
       if (moveTicket(project.path, project.id, ticketId, column)) broadcast({ type: "tickets", projectId: project.id });
     },
   });
-  /** An agent finished its ticket: publish its branch, open its pull request, and give its slot to the queue. */
-  const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) pulls.raise(agentId, branch); drain(); };
+  /** Each agent's clone and the commit it branched from, which the code review needs. */
+  const agentCwd = new Map<string, string>();
+  const agentBase = new Map<string, string>();
+  const reviewStage = createReviewStage({
+    reviewer: opts.reviewer,
+    agent: (id) => store.agent(id),
+    project: (id) => store.projects().find((p) => p.id === id),
+    ticket: (project, ticketId) => readTickets(project.path, project.id).find((t) => t.id === ticketId),
+    cwd: (id) => agentCwd.get(id),
+    base: (id) => agentBase.get(id),
+    stopped: (id) => pulls.wasStopped(id),
+    reviews: () => store.reviews(),
+    addReview: (r) => store.addReview(r),
+    updateReview: (r) => store.updateReview(r),
+    raise: (id, branch) => pulls.raise(id, branch),
+    sendBack: (id, text) => {
+      // The author goes back to work: its status flips so its next "done" is heard, and the findings are typed to it.
+      const ev: AgentEvent = { type: "status", status: "working" };
+      store.setStatus(id, "working");
+      broadcast({ type: "agent", agent: store.agent(id) });
+      broadcast({ type: "agent-event", agentId: id, eventId: store.addEvent(id, ev), event: ev });
+      opts.runner.write(id, text + "\r");
+    },
+    say: (agentId, text) => {
+      const event: AgentEvent = { type: "output", data: `\r\n[Bridge] ${text}\r\n` };
+      broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
+    },
+    broadcast,
+    settled: () => drain(),
+  });
+  /** An agent finished its ticket: publish its branch, review it, then open its pull request; its slot goes to the queue. */
+  const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) reviewStage.afterDone(agentId, branch); drain(); };
 
   /** Checks open pull requests on GitHub now and then, so cards move to Done when you merge on GitHub. */
   let polling = false;
@@ -170,7 +204,7 @@ export async function startDaemon(opts: DaemonOptions) {
     const n = Number(store.setting("workerCap"));
     return Number.isInteger(n) && n >= 1 && n <= MAX_CAP ? n : DEFAULT_CAP;
   };
-  const running = () => store.agents().filter((a) => a.ticketId && !a.lead && a.status !== "done").length;
+  const running = () => store.agents().filter((a) => a.ticketId && !a.lead && (a.status !== "done" || reviewStage.busy(a.id))).length;
   const queue: Queued[] = [];
   /** Set when an agent reports the plan's usage limit; the queue stays paused until the user resumes it. */
   let rateLimit: { since: number; agentId: string } | null = null;
@@ -211,7 +245,11 @@ export async function startDaemon(opts: DaemonOptions) {
     const cwd = workspace?.path ?? project.path;
     const task = ticket ? taskFor(ticket) : undefined;
     store.addAgent(agent);
-    if (workspace) agentBranch.set(agent.id, workspace.branch);
+    if (workspace) {
+      agentBranch.set(agent.id, workspace.branch);
+      agentCwd.set(agent.id, workspace.path);
+      if (workspace.base) agentBase.set(agent.id, workspace.base);
+    }
     const token = randomUUID();
     hookTokens.set(agent.id, token);
     const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
@@ -232,6 +270,7 @@ export async function startDaemon(opts: DaemonOptions) {
     const method = req.method ?? "GET";
     if (path === "/api/health") return send(res, 200, { ok: true });
     if (path === "/api/pulls") return send(res, 200, store.pulls());
+    if (path === "/api/reviews") return send(res, 200, store.reviews());
     const pullMerge = path.match(/^\/api\/pulls\/([^/]+)\/merge$/);
     if (pullMerge && method === "POST") {
       // Only the Bridge UI sends this header. A web page cannot add it to a cross-origin request without a
@@ -361,7 +400,7 @@ export async function startDaemon(opts: DaemonOptions) {
       opts.runner.stop(a.id);
       publishBranch(a.id);
       pulls.forget(a.id);
-      agentBranch.delete(a.id); announced.delete(a.id);
+      agentBranch.delete(a.id); announced.delete(a.id); agentCwd.delete(a.id); agentBase.delete(a.id);
       hookTokens.delete(a.id);
       store.deleteAgent(a.id);
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }

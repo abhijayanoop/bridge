@@ -7,11 +7,11 @@ import { createPtyAgentRunner } from "./pty-agent.ts";
 import type { Mode } from "./workspace.ts";
 
 /** Runs a command and never throws: a missing executable is reported as a non-zero code. */
-export type CommandRunner = (command: string, args: string[], opts?: { cwd?: string }) => Promise<{ code: number; stdout: string; stderr: string }>;
+export type CommandRunner = (command: string, args: string[], opts?: { cwd?: string; timeoutMs?: number }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export const nodeCommandRunner: CommandRunner = (command, args, opts) =>
   new Promise((resolve) => {
-    execFile(command, args, { encoding: "utf8", timeout: 120_000, windowsHide: true, cwd: opts?.cwd }, (err, stdout, stderr) => {
+    execFile(command, args, { encoding: "utf8", timeout: opts?.timeoutMs ?? 120_000, windowsHide: true, cwd: opts?.cwd }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as any).code === "number" ? (err as any).code : 127) : 0;
       resolve({ code, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
     });

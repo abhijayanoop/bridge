@@ -9,3 +9,13 @@ Not part of `npm test`. Run once by hand; it uses your own Claude login and edit
 5. No `--dangerously-skip-permissions` is passed; sandboxing comes in later tickets.
 
 If `claude` is not found: the runner resolves it on PATH (including `.cmd` shims). Check `where claude` in the same shell that started Bridge.
+
+# Manual check: real code review (ticket 12)
+
+Not part of `npm test`. The default suite uses a fake reviewer; this checks the real adapter (`createClaudeReviewer` in `src/server/reviewer.ts`) on your machine. It runs `claude -p` headless, in the agent's clone, with your login and read-only tools.
+
+1. Install the Pocock skills so `/mattpocock-skills:code-review` exists (Bridge also copies them into each clone).
+2. Run an agent on a small throwaway ticket to done (see the check above). Expect, in its terminal: nothing opens straight away; the Review screen shows a card "Reviewing…".
+3. When it finishes, expect the card to show Standards and Spec columns by severity. Clean: a pull request opens (or the local branch item, for a repo with no GitHub remote). Blocking findings: the agent's terminal gets a line starting "Code review of your branch found work to do" and its status goes back to working.
+4. If the card says "Review could not run", read the reason. A reply that was not the expected JSON is the usual cause: run `claude -p "<prompt>"` by hand in the clone (the prompt is `reviewPrompt` in `src/server/reviewer.ts`) and adjust the prompt or the tool list.
+5. The review is allowed Read, Grep, Glob, Agent and a few read-only `git` commands only; if the skill needs more, it will stop at a permission prompt that `-p` cannot answer and the review will fail rather than change anything.

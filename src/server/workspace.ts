@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 export type Mode = "local" | "sandbox";
 export interface SkillSource { name: string; dir: string }
-export interface Workspace { path: string; branch: string; env: Record<string, string> }
+export interface Workspace { path: string; branch: string; env: Record<string, string>; /** The commit the branch started from; "" if the repo has no commits. */ base: string }
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -133,12 +133,14 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
       const dest = join(opts.clonesDir, input.agentId);
       mkdirSync(opts.clonesDir, { recursive: true });
       const branch = branchFor(input.ticketFile, input.ticketKey);
+      let base = "";
       try {
         git(opts.clonesDir, "clone", "--quiet", "--no-hardlinks", input.projectPath, dest);
         let origin = "";
         try { origin = git(input.projectPath, "remote", "get-url", "origin"); } catch { /* local-only repo */ }
         if (origin) git(dest, "remote", "set-url", "origin", origin);
         else git(dest, "remote", "remove", "origin");
+        try { base = git(dest, "rev-parse", "HEAD"); } catch { /* empty repo */ }
         git(dest, "checkout", "--quiet", "-b", branch);
         stripEnvFiles(dest);
       } catch (err) {
@@ -161,7 +163,7 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
       for (const skill of opts.skills ?? []) {
         try { cpSync(skill.dir, join(dest, ".claude", "skills", skill.name), { recursive: true }); } catch { /* skill vanished */ }
       }
-      return { path: dest, branch, env };
+      return { path: dest, branch, env, base };
     },
   };
 }

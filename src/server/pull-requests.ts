@@ -44,6 +44,7 @@ export function createPullRaiser(deps: PullRaiserDeps) {
   return {
     /** Call before stopping or deleting an agent. */
     userStopped(agentId: string) { stopped.add(agentId); },
+    wasStopped: (agentId: string) => stopped.has(agentId),
     forget(agentId: string) { stopped.delete(agentId); raising.delete(agentId); },
     /** The user pressed Merge. Nothing else in Bridge merges. */
     async merge(pullId: string): Promise<{ code: number; body: unknown }> {

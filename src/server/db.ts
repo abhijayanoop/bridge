@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentEvent, AgentStatus } from "./agent-runner.ts";
 import { avatarState, type AvatarState } from "../shared/avatar.ts";
+import type { Finding } from "./reviewer.ts";
 
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
@@ -34,6 +35,17 @@ export interface Pull {
   /** A repo with no GitHub remote: there is no pull request, only the branch, merged locally on approval. */
   local?: boolean;
 }
+/** One code review of a finished branch. A ticket can have several rounds. */
+export interface Review {
+  id: string; agentId: string; projectId: string; ticketKey: string; ticketTitle: string; branch: string;
+  round: number;
+  /** running; passed (no high or medium findings); changes-requested (sent back to the author); unresolved (still open after the last round); failed (the reviewer could not run). */
+  status: "running" | "passed" | "changes-requested" | "unresolved" | "failed";
+  /** Most severe first. */
+  findings: Finding[];
+  reason?: string;
+  createdAt: number;
+}
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
 export function openStore(dataDir: string) {
@@ -49,6 +61,7 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS pulls (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
@@ -144,6 +157,17 @@ export function openStore(dataDir: string) {
     },
     addPull(p: Pull) {
       db.prepare("INSERT INTO pulls (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM pulls))").run(p.id, JSON.stringify(p));
+    },
+    addReview(r: Review) {
+      db.prepare("INSERT INTO reviews (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM reviews))").run(r.id, JSON.stringify(r));
+    },
+    updateReview(r: Review) {
+      db.prepare("UPDATE reviews SET json = ? WHERE id = ?").run(JSON.stringify(r), r.id);
+    },
+    /** Newest first. */
+    reviews(): Review[] {
+      const rows = db.prepare("SELECT json FROM reviews ORDER BY seq DESC").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as Review);
     },
     updatePull(p: Pull) {
       db.prepare("UPDATE pulls SET json = ? WHERE id = ?").run(JSON.stringify(p), p.id);

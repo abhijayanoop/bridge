@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] The review runs before a ticket becomes ready to merge
-- [ ] Findings display as Standards versus Spec, by severity
-- [ ] Findings are sent back to the author agent as work to do
-- [ ] Covered through the API seam with a fake reviewer
+- [x] The review runs before a ticket becomes ready to merge
+- [x] Findings display as Standards versus Spec, by severity
+- [x] Findings are sent back to the author agent as work to do
+- [x] Covered through the API seam with a fake reviewer
