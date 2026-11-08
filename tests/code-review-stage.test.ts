@@ -27,7 +27,7 @@ function fakeReviewer() {
   return { reviewer, requests, answer: (r: ReviewResult) => waiting.shift()!(r) };
 }
 
-async function boot(withReviewer = true) {
+async function boot(withReviewer = true, existingDir?: string) {
   const rv = fakeReviewer();
   const opened: { branch: string; title: string }[] = [];
   const github: GitHub = {
@@ -35,24 +35,29 @@ async function boot(withReviewer = true) {
     pullState: async () => "open",
     mergePullRequest: async () => ({ ok: true }),
   };
-  const dir = mkdtempSync(join(tmpdir(), "bridge-review-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = existingDir ?? mkdtempSync(join(tmpdir(), "bridge-review-"));
+  if (!existingDir) cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const repo = join(dir, "repo");
-  mkdirSync(join(repo, ".scratch", "f", "issues"), { recursive: true });
-  writeFileSync(join(repo, ".scratch", "f", "issues", "01-add-thing.md"), "# 01: Add thing\n\n**Status:** ready-for-agent\n\n- [ ] it works\n");
-  writeFileSync(join(repo, ".scratch", "f", "issues", "02-other.md"), "# 02: Other\n\n**Status:** ready-for-agent\n");
-  writeFileSync(join(repo, "app.txt"), "hello\n");
-  git(repo, "init", "-b", "main"); git(repo, "add", "-A"); git(repo, "commit", "-m", "init");
+  if (!existingDir) {
+    mkdirSync(join(repo, ".scratch", "f", "issues"), { recursive: true });
+    writeFileSync(join(repo, ".scratch", "f", "issues", "01-add-thing.md"), "# 01: Add thing\n\n**Status:** ready-for-agent\n\n- [ ] it works\n");
+    writeFileSync(join(repo, ".scratch", "f", "issues", "02-other.md"), "# 02: Other\n\n**Status:** ready-for-agent\n");
+    writeFileSync(join(repo, "app.txt"), "hello\n");
+    git(repo, "init", "-b", "main"); git(repo, "add", "-A"); git(repo, "commit", "-m", "init");
+  }
   const daemon = await startDaemon({
     dataDir: join(dir, "data"), runner: createFakeAgentRunner([]), github, pullPollMs: 0,
     reviewer: withReviewer ? rv.reviewer : undefined,
   });
+  let closed = false;
+  const close = daemon.close.bind(daemon);
+  daemon.close = async () => { if (!closed) { closed = true; await close(); } };
   cleanups.push(() => daemon.close());
   const call = async (method: string, path: string, body?: unknown) => {
     const r = await fetch(daemon.url + path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: r.status, json: (await r.json()) as any };
   };
-  const project = (await call("POST", "/api/projects", { name: "demo", path: repo })).json;
+  const project = ((await call("GET", "/api/projects")).json as any[])[0] ?? (await call("POST", "/api/projects", { name: "demo", path: repo })).json;
   const startAgent = async () => (await call("POST", "/api/agents", { projectId: project.id, name: "A", ticket: "f/01" })).json;
   /** The agent reports done through its hook, as when its session ends. */
   const finish = (agent: any) => {
@@ -70,7 +75,7 @@ async function boot(withReviewer = true) {
   const agentStatus = async (agent: any) => (await call("GET", "/api/agents")).json.find((a: any) => a.id === agent.id).status;
   const ticketStatus = () =>
     readFileSync(join(repo, ".scratch", "f", "issues", "01-add-thing.md"), "utf8").split(/\r?\n/).find((l) => l.startsWith("**Status:**"))!.slice("**Status:**".length).trim();
-  return { ...rv, opened, call, startAgent, finish, commit, events, reviews, agentStatus, ticketStatus, repo };
+  return { ...rv, daemon, dir, opened, call, startAgent, finish, commit, events, reviews, agentStatus, ticketStatus, repo };
 }
 
 describe("code-review stage via the public API", { timeout: 40_000 }, () => {
@@ -169,6 +174,43 @@ describe("code-review stage via the public API", { timeout: 40_000 }, () => {
     expect(await t.reviews()).toEqual([]);
   });
 
+  it("an agent the user stops during its review is not sent back to work and gets no pull request", async () => {
+    const t = await boot();
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(() => t.requests.length).toBe(1);
+    await t.call("POST", `/api/agents/${agent.id}/stop`, {});
+    t.answer({ ok: true, findings: [finding("spec", "high", "Something to fix")] });
+    await expect.poll(async () => (await t.reviews())[0]?.status).toBe("failed");
+    expect((await t.reviews())[0].reason).toContain("stopped or deleted");
+    expect(await t.agentStatus(agent)).toBe("done");
+    expect(await t.events(agent)).not.toContain("Something to fix");
+    expect(t.opened).toEqual([]);
+  });
+
+  it("an agent deleted during its review leaves no pull request and no stray events", async () => {
+    const t = await boot();
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(() => t.requests.length).toBe(1);
+    await t.call("DELETE", `/api/agents/${agent.id}`);
+    t.answer({ ok: false, reason: "the clone is gone" });
+    await expect.poll(async () => (await t.reviews())[0]?.status).toBe("failed");
+    expect((await t.call("GET", `/api/agents/${agent.id}/events`)).json).toEqual([]);
+    expect(t.opened).toEqual([]);
+  });
+
+  it("a review that was running when Bridge stopped is marked failed on the next start, not left reviewing forever", async () => {
+    const first = await boot();
+    const agent = await first.startAgent();
+    await first.finish(agent);
+    await expect.poll(() => first.requests.length).toBe(1);
+    expect(await first.reviews()).toMatchObject([{ status: "running" }]);
+    await first.daemon.close();
+    const second = await boot(true, first.dir);
+    expect(await second.reviews()).toMatchObject([{ status: "failed", reason: expect.stringContaining("restarted") }]);
+  });
+
   it("an agent under review keeps its worker slot until the review settles", async () => {
     const t = await boot();
     await t.call("POST", "/api/limits", { cap: 1 });
@@ -194,37 +236,63 @@ describe("code-review stage via the public API", { timeout: 40_000 }, () => {
 });
 
 describe("Claude CLI reviewer adapter", () => {
-  const req: ReviewRequest = { cwd: "/clone", branch: "ticket/12-x", base: "abc123", ticketFile: ".scratch/f/issues/12-x.md" };
-  const runner = (reply: { code: number; stdout?: string; stderr?: string }) => {
+  const req: ReviewRequest = { cwd: "/agent-clone", branch: "ticket/12-x", base: "abc123", ticketFile: ".scratch/f/issues/12-x.md" };
+  /** A fake command runner: `git clone` succeeds (unless told otherwise) and `claude` answers with `reply`. */
+  const runner = (reply: { code: number; stdout?: string; stderr?: string }, cloneCode = 0) => {
     const calls: { cmd: string; args: string[]; cwd?: string }[] = [];
-    const run: CommandRunner = async (cmd, args, opts) => { calls.push({ cmd, args, cwd: opts?.cwd }); return { code: reply.code, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" }; };
+    const run: CommandRunner = async (cmd, args, opts) => {
+      calls.push({ cmd, args, cwd: opts?.cwd });
+      if (cmd === "git") return { code: cloneCode, stdout: "", stderr: cloneCode ? "fatal: could not clone" : "" };
+      return { code: reply.code, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" };
+    };
     return { reviewer: createClaudeReviewer(run), calls };
   };
 
-  it("runs the installed skill headless in the clone with read-only tools, and parses the findings", async () => {
+  it("reviews a clean checkout of the branch, not the agent's clone, headless with read-only tools and the user's own settings only", async () => {
     const reply = JSON.stringify({ findings: [{ axis: "spec", severity: "high", summary: "Box 3 is missing", file: "a.ts", line: 4 }, { axis: "standards", severity: "low", summary: "Rename x" }] });
     const t = runner({ code: 0, stdout: reply });
     expect(await t.reviewer.review(req)).toEqual({ ok: true, findings: [
       { axis: "spec", severity: "high", summary: "Box 3 is missing", file: "a.ts", line: 4 },
       { axis: "standards", severity: "low", summary: "Rename x" },
     ] });
-    const [call] = t.calls;
-    expect(call).toMatchObject({ cmd: "claude", cwd: "/clone" });
-    expect(call!.args[0]).toBe("-p");
-    expect(call!.args[1]).toContain("code-review");
-    expect(call!.args[1]).toContain("abc123");
-    expect(call!.args[1]).toContain(".scratch/f/issues/12-x.md");
-    const tools = call!.args.slice(call!.args.indexOf("--allowedTools") + 1);
-    expect(tools).toContain("Read");
-    expect(tools.join(" ")).not.toMatch(/Edit|Write|git (commit|push|merge|checkout)|Bash\(\*\)|Bash$/);
-    expect(call!.args).not.toContain("--dangerously-skip-permissions");
+    const [clone, claude] = t.calls;
+    // The agent controls its clone's git config, hooks and settings, so none of it is used: the branch is cloned afresh.
+    expect(clone!.cmd).toBe("git");
+    expect(clone!.args.slice(0, 5)).toEqual(["clone", "--quiet", "--no-hardlinks", "--branch", "ticket/12-x"]);
+    expect(clone!.args).toContain("/agent-clone");
+    const checkout = clone!.args.at(-1)!;
+    expect(checkout).not.toBe("/agent-clone");
+    expect(claude).toMatchObject({ cmd: "claude", cwd: checkout });
+    expect(claude!.args[0]).toBe("-p");
+    expect(claude!.args[1]).toContain("code-review");
+    expect(claude!.args[1]).toContain("abc123");
+    expect(claude!.args[1]).toContain(".scratch/f/issues/12-x.md");
+    // Project and local settings (which the branch could carry) are ignored; changing tools are denied outright.
+    expect(claude!.args[claude!.args.indexOf("--setting-sources") + 1]).toBe("user");
+    const disallowed = claude!.args[claude!.args.indexOf("--disallowedTools") + 1]!;
+    for (const tool of ["Edit", "Write", "NotebookEdit"]) expect(disallowed).toContain(tool);
+    const allowed = claude!.args.slice(claude!.args.indexOf("--allowedTools") + 1, claude!.args.indexOf("--disallowedTools"));
+    expect(allowed).toContain("Read");
+    expect(allowed.join(" ")).not.toMatch(/Edit|Write|git (commit|push|merge|checkout)|Bash\(\*\)|Bash$/);
+    expect(claude!.args).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("finds the JSON in a fenced block or a sentence, drops malformed findings, and reports a reply it cannot read", async () => {
-    const fenced = "Here is the review:\n```json\n" + JSON.stringify({ findings: [{ axis: "spec", severity: "medium", summary: "Half done" }, { axis: "style", severity: "high", summary: "bad axis" }, { axis: "spec", severity: "high", summary: "" }] }) + "\n```\nDone.";
-    expect(parseFindings(fenced)).toEqual([{ axis: "spec", severity: "medium", summary: "Half done" }]);
+  it("reports a clone that fails, without running the review", async () => {
+    const t = runner({ code: 0, stdout: "{}" }, 128);
+    expect(await t.reviewer.review(req)).toEqual({ ok: false, reason: "could not check out the branch to review: fatal: could not clone" });
+    expect(t.calls.some((c) => c.cmd === "claude")).toBe(false);
+  });
+
+  it("finds the JSON in a fenced block or a sentence, and rejects a reply with any malformed finding rather than dropping it", async () => {
+    const good = { axis: "spec", severity: "medium", summary: "Half done" };
+    const fenced = "Here is the review:\n```json\n" + JSON.stringify({ findings: [good] }) + "\n```\nDone.";
+    expect(parseFindings(fenced)).toEqual([good]);
     expect(parseFindings('The result is {"findings": []} as asked.')).toEqual([]);
     expect(parseFindings("Looks fine to me!")).toBeNull();
+    // A finding with an unknown axis or severity, or no summary, could hide a real problem: the whole reply is refused.
+    for (const bad of [{ axis: "style", severity: "high", summary: "x" }, { axis: "spec", severity: "urgent", summary: "x" }, { axis: "spec", severity: "high", summary: "" }]) {
+      expect(parseFindings(JSON.stringify({ findings: [good, bad] }))).toBeNull();
+    }
     expect(await runner({ code: 0, stdout: "Looks fine to me!" }).reviewer.review(req)).toMatchObject({ ok: false, reason: expect.stringContaining("expected JSON") });
   });
 

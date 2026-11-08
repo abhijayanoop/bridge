@@ -12,7 +12,7 @@ If `claude` is not found: the runner resolves it on PATH (including `.cmd` shims
 
 # Manual check: real code review (ticket 12)
 
-Not part of `npm test`. The default suite uses a fake reviewer; this checks the real adapter (`createClaudeReviewer` in `src/server/reviewer.ts`) on your machine. It runs `claude -p` headless, in the agent's clone, with your login and read-only tools.
+Not part of `npm test`. The default suite uses a fake reviewer; this checks the real adapter (`createClaudeReviewer` in `src/server/reviewer.ts`) on your machine. It runs `claude -p` headless on the host with your login, in a fresh temporary checkout of the branch (not the agent's clone, whose git config and settings the agent controls), reading only your user-level Claude settings, with the file-changing tools denied.
 
 1. Install the Pocock skills so `/mattpocock-skills:code-review` exists (Bridge also copies them into each clone).
 2. Run an agent on a small throwaway ticket to done (see the check above). Expect, in its terminal: nothing opens straight away; the Review screen shows a card "Reviewing…".

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { nodeCommandRunner, type CommandRunner } from "./sbx.ts";
 
 export const AXES = ["standards", "spec"] as const;
@@ -56,8 +59,9 @@ export function parseFindings(text: string): Finding[] | null {
     if (!Array.isArray(list)) continue;
     const findings: Finding[] = [];
     for (const raw of list as Record<string, unknown>[]) {
-      if (!raw || !(AXES as readonly unknown[]).includes(raw.axis) || !(SEVERITIES as readonly unknown[]).includes(raw.severity)) continue;
-      if (typeof raw.summary !== "string" || !raw.summary.trim()) continue;
+      // One malformed finding could be a real problem that went missing, so the whole reply is refused.
+      if (!raw || !(AXES as readonly unknown[]).includes(raw.axis) || !(SEVERITIES as readonly unknown[]).includes(raw.severity)) return null;
+      if (typeof raw.summary !== "string" || !raw.summary.trim()) return null;
       findings.push({
         axis: raw.axis as Finding["axis"], severity: raw.severity as Finding["severity"], summary: raw.summary.trim(),
         ...(typeof raw.file === "string" && raw.file ? { file: raw.file } : {}),
@@ -69,21 +73,40 @@ export function parseFindings(text: string): Finding[] | null {
   return null;
 }
 
+/** Tools that change files are refused outright, whatever any settings file allows. */
+const DENIED_TOOLS = "Edit Write NotebookEdit";
+
 /**
- * Real reviewer: runs the user's installed code-review skill through the Claude CLI, headless, in the branch's
- * clone, on the host with the user's own login. Read-only tools only. Verified by the manual check in
- * docs/manual-check-real-cli.md, not by the default test run.
+ * Real reviewer: runs the user's installed code-review skill through the Claude CLI, headless, on the host with
+ * the user's own login. The agent controls its clone (its git config, hooks and settings files), so the review
+ * runs in a fresh checkout of the branch instead; only the user's own Claude settings are read, and the tools
+ * that change files are denied. Verified by the manual check in docs/manual-check-real-cli.md, not by the
+ * default test run.
  */
 export function createClaudeReviewer(run: CommandRunner = nodeCommandRunner, claude = "claude"): Reviewer {
   return {
     async review(req) {
-      const r = await run(claude, ["-p", reviewPrompt(req), "--allowedTools", ...READ_ONLY_TOOLS], { cwd: req.cwd, timeoutMs: REVIEW_TIMEOUT_MS });
-      if (r.code !== 0) {
-        const why = (r.stderr.trim() || r.stdout.trim()).split(/\r?\n/).filter(Boolean).at(-1);
-        return { ok: false, reason: `the claude CLI exited with ${r.code}${why ? `: ${why}` : ""}` };
+      const checkout = mkdtempSync(join(tmpdir(), "bridge-review-"));
+      try {
+        const clone = await run("git", ["clone", "--quiet", "--no-hardlinks", "--branch", req.branch, req.cwd, checkout]);
+        if (clone.code !== 0) {
+          const why = clone.stderr.trim().split(/\r?\n/).filter(Boolean).at(-1);
+          return { ok: false, reason: `could not check out the branch to review${why ? `: ${why}` : ""}` };
+        }
+        rmSync(join(checkout, ".claude"), { recursive: true, force: true });
+        const r = await run(claude, [
+          "-p", reviewPrompt(req), "--setting-sources", "user",
+          "--allowedTools", ...READ_ONLY_TOOLS, "--disallowedTools", DENIED_TOOLS,
+        ], { cwd: checkout, timeoutMs: REVIEW_TIMEOUT_MS });
+        if (r.code !== 0) {
+          const why = (r.stderr.trim() || r.stdout.trim()).split(/\r?\n/).filter(Boolean).at(-1);
+          return { ok: false, reason: `the claude CLI exited with ${r.code}${why ? `: ${why}` : ""}` };
+        }
+        const findings = parseFindings(r.stdout);
+        return findings ? { ok: true, findings } : { ok: false, reason: "the review did not return findings in the expected JSON shape" };
+      } finally {
+        rmSync(checkout, { recursive: true, force: true });
       }
-      const findings = parseFindings(r.stdout);
-      return findings ? { ok: true, findings } : { ok: false, reason: "the review did not return findings in the expected JSON shape" };
     },
   };
 }

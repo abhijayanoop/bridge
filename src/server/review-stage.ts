@@ -72,6 +72,11 @@ export function createReviewStage(deps: ReviewStageDeps) {
       void reviewer.review({ cwd, branch, base, ticketFile: ticket.file })
         .catch((err): { ok: false; reason: string } => ({ ok: false, reason: (err as Error).message }))
         .then((result) => {
+          // The user stopped or deleted the agent while the review ran: it never finished, so nothing is sent or opened.
+          if (deps.stopped(agentId) || !deps.agent(agentId)) {
+            finish({ status: "failed", reason: "the agent was stopped or deleted during the review" });
+            return;
+          }
           if (!result.ok) {
             finish({ status: "failed", reason: result.reason });
             deps.say(agentId, `Code review could not run: ${result.reason}. Opening the pull request without it.`);
@@ -92,7 +97,7 @@ export function createReviewStage(deps: ReviewStageDeps) {
           const todo = blocking.map((f, i) => `${i + 1}) [${f.axis}/${f.severity}] ${f.summary}${f.file ? ` (${f.file}${f.line ? `:${f.line}` : ""})` : ""}`).join("; ");
           deps.sendBack(agentId, `Code review of your branch found work to do. Fix these, commit, then set your status to done again: ${todo}`);
         })
-        .catch((err) => deps.say(agentId, `Code review stage failed: ${(err as Error).message}`))
+        .catch((err) => { if (deps.agent(agentId)) deps.say(agentId, `Code review stage failed: ${(err as Error).message}`); })
         .finally(() => { inFlight.delete(agentId); deps.settled(); });
     },
   };

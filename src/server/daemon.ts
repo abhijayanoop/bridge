@@ -149,6 +149,10 @@ export async function startDaemon(opts: DaemonOptions) {
   /** Each agent's clone and the commit it branched from, which the code review needs. */
   const agentCwd = new Map<string, string>();
   const agentBase = new Map<string, string>();
+  // A review that was running when Bridge stopped will never report back.
+  for (const r of store.reviews().filter((x) => x.status === "running")) {
+    store.updateReview({ ...r, status: "failed", reason: "Bridge restarted during the review" });
+  }
   const reviewStage = createReviewStage({
     reviewer: opts.reviewer,
     agent: (id) => store.agent(id),
