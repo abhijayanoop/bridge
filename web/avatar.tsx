@@ -57,17 +57,20 @@ export function ThinkingOrb({ state, color, size = 64 }: { state: AvatarState | 
     if (!c) return;
     const spec = orbSpec(st);
     const rgb = hexRgb(color);
-    const preset = size <= 36 ? 20 : 64;
+    // Like the reference, the engine only ever draws at its two tuned sizes (20 and 64).
+    // Other sizes scale the drawing, so dot counts and proportions match the original.
+    const logical = size < 48 ? 20 : 64;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const px = Math.round(size * dpr);
     c.width = px; c.height = px;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    const p = engine.resolve(spec.mode, preset);
+    const p = engine.resolve(spec.mode, logical);
+    const k = px / logical;
     const draw = (t: number) => {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, size, size);
-      (engine.draw as Record<string, (...a: any[]) => void>)[spec.mode]!(ctx, size, spec.still ?? t * p.speed, rgb, p.opts, spec.dim);
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      ctx.clearRect(0, 0, logical, logical);
+      (engine.draw as Record<string, (...a: any[]) => void>)[spec.mode]!(ctx, logical, spec.still ?? t * p.speed, rgb, p.opts, spec.dim);
     };
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     if (reduced || spec.still != null) { draw(spec.still ?? 0.6); return; }

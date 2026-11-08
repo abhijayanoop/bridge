@@ -86,6 +86,10 @@ export function openStore(dataDir: string) {
       return listAgents().find((a) => a.id === id);
     },
     agents: listAgents,
+    deleteAgent(id: string): boolean {
+      db.prepare("DELETE FROM events WHERE agent_id = ?").run(id);
+      return Number(db.prepare("DELETE FROM agents WHERE id = ?").run(id).changes) > 0;
+    },
     addEvent(agentId: string, event: AgentEvent) {
       db.prepare("INSERT INTO events (agent_id, json) VALUES (?, ?)").run(agentId, JSON.stringify(event));
     },

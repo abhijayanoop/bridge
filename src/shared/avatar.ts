@@ -53,13 +53,13 @@ export function orbMode(state: AvatarState): OrbMode | "still" {
   }
 }
 
-/** Engine drawing mode and still-frame settings for each orb state (idle, blocked, done hold a frame). */
+/** Engine drawing mode and still-frame settings for each orb state (every state animates; idle and blocked are dimmed). */
 export function orbSpec(state: AvatarState | OrbMode | "searching" | "solving" | "shaping"): { mode: string; still: number | null; dim: number } {
   const M: Record<string, [string, number?, number?]> = {
     working: ["orbits"], implementing: ["orbits"], searching: ["globe"], exploring: ["globe"],
     solving: ["rubik"], debugging: ["rubik"], listening: ["wave"], composing: ["ribbon"],
     shaping: ["morph"], planning: ["morph"],
-    idle: ["globe", 0.6, 0.45], blocked: ["globe", 0.6, 0.22], done: ["morph", 0, 1],
+    idle: ["globe", undefined, 0.5], blocked: ["globe", undefined, 0.25], done: ["morph"],
   };
   const m = M[state] ?? M.working!;
   return { mode: m[0], still: m[1] ?? null, dim: m[2] ?? 1 };

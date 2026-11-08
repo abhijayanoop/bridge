@@ -58,6 +58,11 @@ function stripEnvFiles(root: string) {
 /** Creates one fresh clone per ticket on its own branch; the user's working copy is never touched. */
 export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource[] }) {
   return {
+    /** Removes an agent's clone. Only ever touches `<clonesDir>/<agentId>`. */
+    remove(agentId: string) {
+      if (!/^[\w-]+$/.test(agentId)) return;
+      rmSync(join(opts.clonesDir, agentId), { recursive: true, force: true });
+    },
     /** Returns null when the project is not a git repository (the agent then works in place). */
     prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {
       if (!isGitRepo(input.projectPath)) return null;

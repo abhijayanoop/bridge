@@ -65,7 +65,7 @@ function TerminalDrawer({ agent, onClose }: { agent: AgentInfo; onClose: () => v
     setSendLine("");
   };
   return (
-    <aside aria-label={`Terminal for ${agent.name}`} className="fixed inset-y-0 right-0 z-10 flex w-[min(760px,100%)] flex-col border-l border-line bg-bg">
+    <aside aria-label={`Terminal for ${agent.name}`} className="flex h-full min-h-[420px] min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-bg">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="text-sm font-semibold">{agent.name}</span>
@@ -99,9 +99,16 @@ export function AgentsScreen({ projectId, agents }: { projectId?: string; agents
     const r = await fetch("/api/agents", { method: "POST", body: JSON.stringify({ projectId, name: `Agent ${t.key}`, ticket: t.id }) });
     if (r.ok) setOpenId(((await r.json()) as AgentInfo).id);
   };
+  const remove = async (a: AgentInfo) => {
+    const live = LIVE(a.status);
+    if (!window.confirm(live ? `${a.name} is still running. Stop and delete it? Its clone is removed too.` : `Delete ${a.name}? Its clone is removed too.`)) return;
+    const r = await fetch(`/api/agents/${a.id}`, { method: "DELETE" });
+    if (r.ok && openId === a.id) setOpenId(null);
+  };
   const open = agents.find((a) => a.id === openId);
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex h-full min-h-0 gap-4">
+    <div className={`flex min-w-0 flex-col gap-4 ${open ? "w-1/2 flex-none overflow-auto" : "flex-1"}`}>
       <div className="flex flex-wrap items-center gap-2">
         <select aria-label="Ticket to start an agent on" value={pick} onChange={(e) => setPick(e.target.value)} className="h-9 min-w-0 max-w-full rounded-lg border border-line bg-surface px-2 text-[13px]">
           <option value="">Choose a ticket</option>
@@ -114,18 +121,20 @@ export function AgentsScreen({ projectId, agents }: { projectId?: string; agents
       ) : (
         <ul className="flex flex-col gap-2">
           {agents.map((a) => (
-            <li key={a.id}>
-              <button type="button" onClick={() => setOpenId(a.id)} className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-left hover:bg-surface-2">
+            <li key={a.id} className={`flex items-stretch gap-2 rounded-xl border bg-surface ${a.id === openId ? "border-fg-3" : "border-line"}`}>
+              <button type="button" onClick={() => setOpenId(a.id)} aria-pressed={a.id === openId} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-surface-2">
                 <AgentAvatar shape={a.shape ?? "circle"} color={a.color ?? "#0A84FF"} state={a.avatarState ?? "idle"} size={40} lead={a.lead} name={a.name} />
                 <span className="font-semibold">{a.name}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-fg-2">{a.ticketKey ? `${a.ticketKey} · ${a.ticketTitle ?? ""}` : "no ticket"}</span>
                 <ThinkingOrb state={a.avatarState ?? "idle"} color={a.color ?? "#0A84FF"} size={32} />
-                <span className="w-28 text-right text-xs text-fg-2">{STATE_LABELS[(a.avatarState ?? "idle") as keyof typeof STATE_LABELS] ?? a.status}</span>
+                <span className="w-28 flex-none text-right text-xs text-fg-2">{STATE_LABELS[(a.avatarState ?? "idle") as keyof typeof STATE_LABELS] ?? a.status}</span>
               </button>
+              <button type="button" onClick={() => remove(a)} aria-label={`Delete ${a.name}`} className="my-2 mr-2 h-9 flex-none self-center rounded-lg border border-line px-3 text-[13px] text-fg-2 hover:bg-surface-2 hover:text-fg">Delete</button>
             </li>
           ))}
         </ul>
       )}
+    </div>
       {open && <TerminalDrawer key={open.id} agent={open} onClose={() => setOpenId(null)} />}
     </div>
   );

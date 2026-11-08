@@ -185,6 +185,17 @@ export async function startDaemon(opts: DaemonOptions) {
       const a = approvals.revoke(am[1]!);
       return a ? send(res, 200, a) : send(res, 404, { error: "unknown or already undone" });
     }
+    const dm = path.match(/^\/api\/agents\/([^/]+)$/);
+    if (dm && method === "DELETE") {
+      const a = store.agent(dm[1]!);
+      if (!a) return send(res, 404, { error: "unknown agent" });
+      opts.runner.stop(a.id);
+      hookTokens.delete(a.id);
+      store.deleteAgent(a.id);
+      try { workspaces.remove(a.id); } catch { /* clone already gone */ }
+      broadcast({ type: "agent-deleted", agentId: a.id });
+      return send(res, 200, { ok: true });
+    }
     const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
     if (hm && method === "POST") {
       const expected = hookTokens.get(hm[1]!);
