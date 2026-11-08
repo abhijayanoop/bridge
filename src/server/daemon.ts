@@ -28,6 +28,8 @@ export interface DaemonOptions {
   skills?: SkillSource[];
   /** Why this mode was chosen (e.g. sbx missing, so local mode); served at /api/sandbox. */
   sandboxNotice?: string;
+  /** Host name agents use to reach this daemon in hook and MCP URLs. Sandboxes need `host.docker.internal`. */
+  agentHost?: string;
 }
 
 const MIME: Record<string, string> = {
@@ -59,6 +61,7 @@ export async function startDaemon(opts: DaemonOptions) {
   /** Per-agent secret that lets an agent's hooks report status; never listed by the API. */
   const hookTokens = new Map<string, string>();
   let port = 0;
+  const agentHost = opts.agentHost ?? "127.0.0.1";
 
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
@@ -156,11 +159,11 @@ export async function startDaemon(opts: DaemonOptions) {
       store.addAgent(agent);
       const token = randomUUID();
       hookTokens.set(agent.id, token);
-      const hook = { url: `http://127.0.0.1:${port}/api/agents/${agent.id}/hook`, token };
+      const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
       try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
       broadcast({ type: "agent", agent: store.agent(agent.id) });
       let mcpConfig: string | undefined;
-      try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://127.0.0.1:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
+      try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
       opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
         if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); }

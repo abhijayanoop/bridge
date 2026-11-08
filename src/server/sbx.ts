@@ -30,6 +30,8 @@ export const SBX = {
     ...Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
     "claude", workspace,
   ],
+  /** Lets one sandbox reach Bridge's own daemon on the host (as `host.docker.internal`). Per sandbox, never global. */
+  allowDaemon: (name: string, port: string) => ["--no-input", "policy", "allow", "network", "--sandbox", name, `localhost:${port}`],
   /** Interactive agent session inside an existing sandbox (a stopped one is started first). */
   exec: (name: string, agentArgs: string[]) => ["exec", "-it", name, "claude", ...agentArgs],
   /** Force-removes a sandbox without asking. */
@@ -55,11 +57,17 @@ export function findSbx(env: NodeJS.ProcessEnv = process.env, exists: (p: string
 
 export const sandboxName = (agentId: string) => `bridge-${agentId}`;
 
+/** Where a host path appears inside the sandbox: a Windows drive path is mounted at /<drive>/<rest>. */
+export function sandboxPath(hostPath: string): string {
+  const m = hostPath.match(/^([A-Za-z]):[\\/](.*)$/);
+  return m ? `/${m[1]!.toLowerCase()}/${m[2]!.replaceAll("\\", "/")}` : hostPath;
+}
+
 /** Arguments for claude inside the sandbox: full permissions, because the sandbox is the boundary. */
 function agentArgs(spec: AgentSpec): string[] {
   return [
     ...(spec.task ? [spec.task] : []),
-    ...(spec.mcpConfig ? ["--mcp-config", spec.mcpConfig] : []),
+    ...(spec.mcpConfig ? ["--mcp-config", sandboxPath(spec.mcpConfig)] : []),
     "--dangerously-skip-permissions",
   ];
 }
@@ -84,7 +92,13 @@ export function createSbxAgentRunner(run: CommandRunner, sbx = "sbx", createInne
           emit({ type: "status", status: "done" });
           return;
         }
-        inner.start(spec, emit);
+        // Bridge's own daemon port is opened for this sandbox only, so hooks and MCP can report back.
+        const port = spec.hook ? new URL(spec.hook.url).port : "";
+        const ready = port ? run(sbx, SBX.allowDaemon(name, port)) : Promise.resolve(r);
+        void ready.then(() => {
+          if (cancelled.delete(spec.id)) { void run(sbx, SBX.remove(name)); return; }
+          inner.start(spec, emit);
+        });
       });
     },
     stop(agentId) {

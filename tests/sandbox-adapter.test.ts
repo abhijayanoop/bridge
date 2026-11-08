@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { startDaemon } from "../src/server/daemon.ts";
 import { createFakeAgentRunner } from "../src/server/fake-agent.ts";
 import type { AgentRunner, AgentSpec } from "../src/server/agent-runner.ts";
-import { findSbx, resolveSandbox, type CommandRunner } from "../src/server/sbx.ts";
+import { findSbx, resolveSandbox, sandboxPath, type CommandRunner } from "../src/server/sbx.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
@@ -46,7 +46,7 @@ async function boot(missing: boolean, failCreate = false) {
     }),
     local: { ...fake, start(spec, emit) { specs.push(spec); innerArgs.push(["local"]); fake.start(spec, emit); } } satisfies AgentRunner,
   });
-  const daemon = await startDaemon({ dataDir: join(dir, "data"), runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice });
+  const daemon = await startDaemon({ dataDir: join(dir, "data"), runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice, agentHost: sandbox.mode === "sandbox" ? "host.docker.internal" : undefined });
   cleanups.push(() => daemon.close());
   const post = async (path: string, body: unknown) => {
     const r = await fetch(daemon.url + path, { method: "POST", body: JSON.stringify(body) });
@@ -72,6 +72,13 @@ describe("Docker Sandboxes adapter", () => {
     expect(cmd).toBe("sbx");
     expect(args.slice(0, 4)).toEqual(["exec", "-it", name, "claude"]);
     expect(args).toContain("--dangerously-skip-permissions");
+    // Paths and URLs are as the sandbox sees them: mount-style path, host.docker.internal, and a per-sandbox allow for the daemon port.
+    const mcp = args[args.indexOf("--mcp-config") + 1]!;
+    expect(mcp).toBe(sandboxPath(join(r.json.workspace.path, ".claude", `bridge-mcp-${r.json.id}.json`)));
+    expect(mcp).not.toMatch(/\\|^[A-Za-z]:/);
+    expect(t.calls).toContainEqual(["sbx", "--no-input", "policy", "allow", "network", "--sandbox", name, `localhost:${new URL(t.daemon.url).port}`]);
+    const cfg = JSON.parse(readFileSync(join(r.json.workspace.path, ".claude", `bridge-mcp-${r.json.id}.json`), "utf8"));
+    expect(cfg.mcpServers.bridge.url).toMatch(/^http:\/\/host\.docker\.internal:/);
     const info = await (await fetch(t.daemon.url + "/api/sandbox")).json() as any;
     expect(info.mode).toBe("sandbox");
   });
@@ -121,6 +128,11 @@ describe("Docker Sandboxes adapter", () => {
     const events = JSON.stringify(await (await fetch(`${t.daemon.url}/api/agents/${agent.id}/events`)).json());
     expect(events).toMatch(/Could not create the sandbox.*no capacity/);
     expect(t.specs).toHaveLength(0);
+  });
+
+  it("maps Windows host paths to their sandbox mount paths", () => {
+    expect(sandboxPath("C:\\Users\\a b\\.bridge\\x.json")).toBe("/c/Users/a b/.bridge/x.json");
+    expect(sandboxPath("/home/a/x.json")).toBe("/home/a/x.json");
   });
 
   it("finds sbx on PATH, else in the per-user winget directory, else the bare name", () => {

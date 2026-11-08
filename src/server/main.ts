@@ -24,6 +24,7 @@ console.log(sandbox.notice);
 const daemon = await startDaemon({
   dataDir, port, skills: discoverPocockSkills(), webDir: join(root, "dist", "web"),
   runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice,
+  agentHost: sandbox.mode === "sandbox" ? "host.docker.internal" : undefined,
 });
 console.log(`Bridge listening on ${daemon.url}`);
 const quit = () => daemon.close().then(() => process.exit(0));
