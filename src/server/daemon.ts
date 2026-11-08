@@ -26,6 +26,8 @@ export interface DaemonOptions {
   mode?: Mode;
   /** Skills copied into every ticket clone (the user's installed Pocock skills). */
   skills?: SkillSource[];
+  /** Why this mode was chosen (e.g. sbx missing, so local mode); served at /api/sandbox. */
+  sandboxNotice?: string;
 }
 
 const MIME: Record<string, string> = {
@@ -74,6 +76,7 @@ export async function startDaemon(opts: DaemonOptions) {
   async function api(req: IncomingMessage, res: ServerResponse, path: string) {
     const method = req.method ?? "GET";
     if (path === "/api/health") return send(res, 200, { ok: true });
+    if (path === "/api/sandbox") return send(res, 200, { mode, message: opts.sandboxNotice ?? "" });
     if (path === "/api/projects" && method === "GET") return send(res, 200, store.projects());
     if (path === "/api/projects" && method === "POST") {
       const { name, path: repoPath } = await readJson(req);

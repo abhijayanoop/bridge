@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] The sandbox port has a Docker Sandboxes implementation, selected when available; local mode otherwise
-- [ ] Network rules and secrets are handled per the approval rules
-- [ ] A manual check proves an agent runs in a sandbox with the subscription login on this machine
-- [ ] A missing sbx produces a clear message and falls back to local mode
+- [x] The sandbox port has a Docker Sandboxes implementation, selected when available; local mode otherwise
+- [x] Network rules and secrets are handled per the approval rules
+- [x] A manual check proves an agent runs in a sandbox with the subscription login on this machine
+- [x] A missing sbx produces a clear message and falls back to local mode
