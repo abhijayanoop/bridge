@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentEvent, AgentRunner } from "./agent-runner.ts";
-import { DEFAULT_WORKSPACE, openStore, type Project } from "./db.ts";
+import { DEFAULT_WORKSPACE, openStore, type AgentRow, type Project } from "./db.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -110,23 +110,37 @@ export async function startDaemon(opts: DaemonOptions) {
     }
     if (path === "/api/agents" && method === "GET") return send(res, 200, store.agents());
     if (path === "/api/agents" && method === "POST") {
-      const { projectId, name } = await readJson(req);
-      if (!store.projects().some((p) => p.id === projectId)) return send(res, 404, { error: "unknown project" });
+      const { projectId, name, ticket: ticketId } = await readJson(req);
+      const project = store.projects().find((p) => p.id === projectId);
+      if (!project) return send(res, 404, { error: "unknown project" });
       if (!name) return send(res, 400, { error: "name required" });
-      const agent = { id: randomUUID(), projectId, name, status: "idle" as const };
+      const ticket = ticketId ? readTickets(project.path, project.id).find((t) => t.id === ticketId) : undefined;
+      if (ticketId && !ticket) return send(res, 404, { error: "unknown ticket" });
+      const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null };
+      const task = ticket ? `Work on ticket ${ticket.key}: ${ticket.title}. Read the ticket file ${ticket.file} first.` : undefined;
       store.addAgent(agent);
       broadcast({ type: "agent", agent });
-      opts.runner.start({ id: agent.id, name, projectId }, (event: AgentEvent) => {
-        store.addEvent(agent.id, event);
+      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task }, (event: AgentEvent) => {
+        const eventId = store.addEvent(agent.id, event);
         if (event.type === "status") store.setStatus(agent.id, event.status);
-        broadcast({ type: "agent-event", agentId: agent.id, event });
+        broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
       return send(res, 201, agent);
     }
     const m = path.match(/^\/api\/agents\/([^/]+)\/(events|stop)$/);
     if (m) {
       if (m[2] === "events" && method === "GET") return send(res, 200, store.events(m[1]!));
-      if (m[2] === "stop" && method === "POST") { opts.runner.stop(m[1]!); return send(res, 200, { ok: true }); }
+      if (m[2] === "stop" && method === "POST") {
+        const a = store.agents().find((x) => x.id === m[1]);
+        if (!a) return send(res, 404, { error: "unknown agent" });
+        opts.runner.stop(a.id);
+        if (a.status !== "done") {
+          const ev: AgentEvent = { type: "status", status: "done" };
+          store.setStatus(a.id, "done");
+          broadcast({ type: "agent-event", agentId: a.id, eventId: store.addEvent(a.id, ev), event: ev });
+        }
+        return send(res, 200, { ok: true });
+      }
     }
     return send(res, 404, { error: "not found" });
   }
@@ -152,6 +166,13 @@ export async function startDaemon(opts: DaemonOptions) {
   const wss = new WebSocketServer({ server, path: "/ws" });
   wss.on("connection", (ws) => {
     sockets.add(ws);
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (msg.type === "input" && typeof msg.agentId === "string" && typeof msg.data === "string") opts.runner.write(msg.agentId, msg.data);
+        if (msg.type === "resize" && typeof msg.agentId === "string") opts.runner.resize?.(msg.agentId, Number(msg.cols), Number(msg.rows));
+      } catch { /* ignore malformed */ }
+    });
     ws.on("close", () => sockets.delete(ws));
   });
 

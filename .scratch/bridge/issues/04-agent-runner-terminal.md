@@ -8,7 +8,9 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Starting an agent on a ticket launches it and streams its terminal to the UI
-- [ ] Typing in the terminal reaches the agent; Stop halts it
-- [ ] Permission prompts and questions are visible in the terminal
+- [x] Starting an agent on a ticket launches it and streams its terminal to the UI
+- [x] Typing in the terminal reaches the agent; Stop halts it
+- [x] Permission prompts and questions are visible in the terminal
 - [ ] Works on Windows 11 with the real CLI (manual check) and with the fake adapter (automated)
+
+Note: real-CLI-on-Windows manual check is not yet done; see docs/manual-check-real-cli.md.

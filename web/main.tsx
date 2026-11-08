@@ -1,9 +1,9 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import { AgentsScreen, type AgentInfo } from "./agents.tsx";
 
 interface Project { id: string; name: string; path: string }
-interface Agent { id: string; name: string; status: string }
 
 const NAV = ["Board", "Agents", "Inbox", "Plan", "Review"];
 
@@ -153,7 +153,7 @@ function Board({ project }: { project?: Project }) {
 
 function App() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [section, setSection] = useState("Board");
 
@@ -165,7 +165,7 @@ function App() {
     };
     load();
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
-    ws.onmessage = load;
+    ws.onmessage = (m) => { try { const d = JSON.parse(String(m.data)); if (d.type === "agent-event" && d.event?.type === "output") return; } catch { /* reload */ } load(); };
     return () => ws.close();
   }, []);
 
@@ -178,17 +178,8 @@ function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar project={project} section={section} workers={working} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} /> : agents.length === 0 ? (
-            <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet. Agents will appear as they start.</div>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {agents.map((a) => (
-                <li key={a.id} className="flex items-center justify-between rounded-xl border border-line bg-surface px-4 py-3">
-                  <span className="font-semibold">{a.name}</span>
-                  <span className="font-mono text-xs text-fg-2">{a.status}</span>
-                </li>
-              ))}
-            </ul>
+          {section === "Board" ? <Board project={project} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : (
+            <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>
       </div>
