@@ -4,11 +4,15 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] A ticket start creates a clone and branch; my working copy is untouched
-- [ ] Real .env files are never present in a clone, covered by a test
-- [ ] Throwaway env values are generated, and Pocock skills are copied in
-- [ ] Local mode runs with permission prompts on
+- [x] A ticket start creates a clone and branch; my working copy is untouched
+- [x] Real .env files are never present in a clone, covered by a test
+- [x] Throwaway env values are generated, and Pocock skills are copied in
+- [x] Local mode runs with permission prompts on
+
+## Comments
+
+Known limits (from review): a committed env file stays in the clone's git history, so only the working tree is clean; a ticket file that is uncommitted in the working copy is absent from the clone; clones are not yet deleted when an agent finishes; the agent still inherits the daemon's own environment.

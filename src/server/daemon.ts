@@ -10,6 +10,7 @@ import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
 import { handleAgentTools } from "./agent-tools.ts";
 import { createInbox } from "./inbox.ts";
 import { SCOPES, createApprovals, type NetworkRules } from "./approvals.ts";
+import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -21,6 +22,10 @@ export interface DaemonOptions {
   webDir?: string;
   /** The sandbox's network allow-list that Bridge-approved domains are added to. Defaults to a no-op. */
   networkRules?: NetworkRules;
+  /** `local` (default) runs without a sandbox and keeps permission prompts on. */
+  mode?: Mode;
+  /** Skills copied into every ticket clone (the user's installed Pocock skills). */
+  skills?: SkillSource[];
 }
 
 const MIME: Record<string, string> = {
@@ -43,6 +48,9 @@ export async function startDaemon(opts: DaemonOptions) {
   };
 
   const inbox = createInbox(store, (item, open) => broadcast({ type: "inbox", item, open }));
+
+  const mode: Mode = opts.mode ?? "local";
+  const workspaces = createWorkspaces({ clonesDir: join(opts.dataDir, "clones"), skills: opts.skills });
 
   const approvals = createApprovals(store, opts.networkRules ?? { add: () => true, remove: () => {} });
 
@@ -135,21 +143,27 @@ export async function startDaemon(opts: DaemonOptions) {
       const lead = body.lead === true;
       const identity = pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
       const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
+      let workspace: Workspace | null = null;
+      if (ticket) {
+        try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
+        catch (err) { return send(res, 500, { error: `could not create clone: ${(err as Error).message}` }); }
+      }
+      const cwd = workspace?.path ?? project.path;
       const task = ticket ? `Work on ticket ${ticket.key}: ${ticket.title}. Read the ticket file ${ticket.file} first.` : undefined;
       store.addAgent(agent);
       const token = randomUUID();
       hookTokens.set(agent.id, token);
       const hook = { url: `http://127.0.0.1:${port}/api/agents/${agent.id}/hook`, token };
-      try { if (existsSync(project.path)) writeHookConfig(project.path, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
+      try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
       broadcast({ type: "agent", agent: store.agent(agent.id) });
       let mcpConfig: string | undefined;
-      try { if (existsSync(project.path)) mcpConfig = writeMcpConfig(project.path, agent.id, `http://127.0.0.1:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
-      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task, hook, mcpConfig },(event: AgentEvent) => {
+      try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://127.0.0.1:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
+      opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
         if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); }
         broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
-      return send(res, 201, store.agent(agent.id));
+      return send(res, 201, { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } });
     }
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);

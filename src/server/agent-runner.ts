@@ -19,6 +19,12 @@ export interface AgentSpec {
   hook?: { url: string; token: string };
   /** Path of the per-agent MCP config exposing the Bridge tools (pass to the CLI with --mcp-config). */
   mcpConfig?: string;
+  /** `local` has no sandbox; `sandbox` is isolated. */
+  mode?: "local" | "sandbox";
+  /** False only when the agent is isolated in a sandbox and may run with full permissions. */
+  permissionPrompts?: boolean;
+  /** Throwaway environment values for the agent process. */
+  env?: Record<string, string>;
 }
 
 /** Starts and stops agents and reports what they do. */

@@ -1,0 +1,112 @@
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+
+export type Mode = "local" | "sandbox";
+export interface SkillSource { name: string; dir: string }
+export interface Workspace { path: string; branch: string; env: Record<string, string> }
+
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+const isGitRepo = (dir: string) => existsSync(join(dir, ".git"));
+
+/** `.env`, `.env.local`, `prod.env` ... but not templates such as `.env.example`. */
+const isRealEnvFile = (name: string) =>
+  (/^\.env(\..+)?$/i.test(name) || /\.env$/i.test(name)) && !/\.(example|sample|template|dist)$/i.test(name);
+
+/** Branch name from the ticket file name, e.g. `ticket/08-clone-branch-local-mode`. */
+export function branchFor(ticketFile: string, key: string): string {
+  const slug = basename(ticketFile).replace(/\.md$/i, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `ticket/${slug || key}`;
+}
+
+/** Names a template must never override: they would break the agent process itself. */
+const RESERVED = /^(PATH|PATHEXT|HOME|USERPROFILE|SHELL|COMSPEC|TEMP|TMP|TMPDIR|NODE_OPTIONS|ANTHROPIC_.*|CLAUDE_.*)$/i;
+
+/** Variable names from a template file. Real env files are never read. */
+function templateKeys(dir: string): string[] {
+  for (const name of [".env.example", ".env.sample", ".env.template"]) {
+    const file = join(dir, name);
+    if (!existsSync(file)) continue;
+    const keys = readFileSync(file, "utf8").split(/\r?\n/)
+      .map((l) => l.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1])
+      .filter((k): k is string => !!k && !RESERVED.test(k));
+    if (keys.length) return keys;
+  }
+  return [];
+}
+
+/** Removes env files from a fresh clone and hides the removal from git. */
+function stripEnvFiles(root: string) {
+  const walk = (dir: string, rel: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === ".git") continue;
+      const abs = join(dir, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(abs, r); continue; }
+      if (!isRealEnvFile(e.name)) continue;
+      rmSync(abs, { force: true });
+      try { git(root, "update-index", "--skip-worktree", "--", r); } catch { /* untracked */ }
+    }
+  };
+  walk(root, "");
+}
+
+/** Creates one fresh clone per ticket on its own branch; the user's working copy is never touched. */
+export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource[] }) {
+  return {
+    /** Returns null when the project is not a git repository (the agent then works in place). */
+    prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {
+      if (!isGitRepo(input.projectPath)) return null;
+      const dest = join(opts.clonesDir, input.agentId);
+      mkdirSync(opts.clonesDir, { recursive: true });
+      const branch = branchFor(input.ticketFile, input.ticketKey);
+      try {
+        git(opts.clonesDir, "clone", "--quiet", "--no-hardlinks", input.projectPath, dest);
+        let origin = "";
+        try { origin = git(input.projectPath, "remote", "get-url", "origin"); } catch { /* local-only repo */ }
+        if (origin) git(dest, "remote", "set-url", "origin", origin);
+        else git(dest, "remote", "remove", "origin");
+        git(dest, "checkout", "--quiet", "-b", branch);
+        stripEnvFiles(dest);
+      } catch (err) {
+        rmSync(dest, { recursive: true, force: true });
+        throw err;
+      }
+      appendFileSync(join(dest, ".git", "info", "exclude"), "\n.env\n.claude/\n");
+      const env: Record<string, string> = {};
+      for (const key of templateKeys(dest)) env[key] = `throwaway-${randomBytes(9).toString("hex")}`;
+      if (Object.keys(env).length) writeFileSync(join(dest, ".env"), Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n");
+      for (const skill of opts.skills ?? []) {
+        try { cpSync(skill.dir, join(dest, ".claude", "skills", skill.name), { recursive: true }); } catch { /* skill vanished */ }
+      }
+      return { path: dest, branch, env };
+    },
+  };
+}
+
+/** Finds the installed Pocock skills (latest version of the plugin) as `{ name, dir }`. */
+export function discoverPocockSkills(home = homedir()): SkillSource[] {
+  const base = join(home, ".claude", "plugins", "cache");
+  const out: SkillSource[] = [];
+  try {
+    for (const marketplace of readdirSync(base)) {
+      const plugin = join(base, marketplace, "mattpocock-skills");
+      if (!existsSync(plugin)) continue;
+      const version = readdirSync(plugin).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
+      if (!version) continue;
+      const skills = join(plugin, version, "skills");
+      for (const category of readdirSync(skills)) {
+        if (category === "deprecated") continue;
+        for (const name of readdirSync(join(skills, category))) {
+          const dir = join(skills, category, name);
+          if (existsSync(join(dir, "SKILL.md"))) out.push({ name, dir });
+        }
+      }
+    }
+  } catch { /* not installed */ }
+  return out;
+}

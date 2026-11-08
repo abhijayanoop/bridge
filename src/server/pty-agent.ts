@@ -32,10 +32,15 @@ export function resolveCommand(command: string, env: NodeJS.ProcessEnv = process
 export function createPtyAgentRunner(opts: PtyRunnerOptions = {}): AgentRunner {
   const sessions = new Map<string, pty.IPty>();
   const command = opts.command ?? "claude";
-  const argsFor = opts.args ?? ((spec: AgentSpec) => [...(spec.task ? [spec.task] : []), ...(spec.mcpConfig ? ["--mcp-config", spec.mcpConfig] : [])]);
+  const argsFor = opts.args ?? ((spec: AgentSpec) => [
+    ...(spec.task ? [spec.task] : []),
+    ...(spec.mcpConfig ? ["--mcp-config", spec.mcpConfig] : []),
+    // Only an isolated sandbox may skip permission prompts; local mode keeps them.
+    ...(spec.permissionPrompts === false ? ["--dangerously-skip-permissions"] : []),
+  ]);
   return {
     start(spec, emit: (event: AgentEvent) => void) {
-      const env = { ...process.env, ...opts.env } as Record<string, string>;
+      const env = { ...process.env, ...opts.env, ...spec.env } as Record<string, string>;
       let file = resolveCommand(command, env);
       let args = argsFor(spec);
       // npm-installed CLIs are .cmd shims on Windows; a pty cannot exec them directly.
