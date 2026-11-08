@@ -14,7 +14,7 @@ interface Persistence {
 }
 
 /** Plain JavaScript so the same check can be written into the agent's hook script. */
-export const MERGE_CHECK_SOURCE = `(command) => command.split(/&&|\\|\\||[;&|\\n]/).some((part) => /^\\s*(?:git(?:\\s+-C\\s+\\S+)?\\s+merge|gh\\s+pr\\s+merge)\\b/.test(part))`;
+export const MERGE_CHECK_SOURCE = `(command) => command.split(/&&|\\|\\||[;&|\\n]/).some((part) => /^\\s*(?:git(?:\\s+-\\S+(?:\\s+[^\\s-]\\S*)?)*\\s+merge|gh\\s+pr\\s+merge)(?![-\\w])/.test(part))`;
 /** True for commands that merge: agents may never do this, the user merges. */
 export const isMergeCommand: (command: string) => boolean = new Function(`return (${MERGE_CHECK_SOURCE})`)();
 

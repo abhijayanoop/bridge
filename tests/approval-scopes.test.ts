@@ -163,11 +163,11 @@ describe("merging is never allowed", () => {
       child.on("close", (status) => resolve({ status, stderr }));
       child.stdin.end(JSON.stringify({ tool_name: "Bash", tool_input: { command } }));
     });
-    for (const c of ["gh pr merge 12 --squash", "git merge feature-x", "git  merge --no-ff x", "cd x && gh pr merge 3"]) {
+    for (const c of ["gh pr merge 12 --squash", "git merge feature-x", "git  merge --no-ff x", "cd x && gh pr merge 3", "git --no-pager merge x", "git -c core.editor=true merge x"]) {
       const r = await run(c);
       expect(r.status, c).toBe(2);
       expect(r.stderr).toMatch(/merge/i);
     }
-    for (const c of ["git status", "git commit -m \"merge conflict notes\"", "npm test"]) expect((await run(c)).status, c).toBe(0);
+    for (const c of ["git status", "git merge-base main x", "git commit -m \"merge conflict notes\"", "npm test"]) expect((await run(c)).status, c).toBe(0);
   }, 30_000); // each hook run can wait out the script's 1.5s stdin fallback
 });

@@ -4,7 +4,7 @@
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 

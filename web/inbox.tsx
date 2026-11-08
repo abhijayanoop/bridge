@@ -65,7 +65,6 @@ function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentIn
   );
 }
 
-/** The Inbox screen: everything that needs the user, newest first, with resolved items kept below. */
 export interface ApprovalInfo { id: string; access: string; detail: string; scope: "once" | "ticket" | "project"; ticketKey: string | null; revokedAt: number | null }
 const SCOPE_LABEL = { once: "Once", ticket: "This ticket", project: "Whole project" };
 
@@ -88,6 +87,7 @@ function Approvals({ list, onUndo }: { list: ApprovalInfo[]; onUndo: (id: string
   );
 }
 
+/** The Inbox screen: everything that needs the user, newest first, with resolved items kept below. */
 export function InboxScreen({ agents, items, reload }: { agents: AgentInfo[]; items: InboxItemInfo[]; reload: () => void }) {
   const [filter, setFilter] = useState(0);
   const [approvals, setApprovals] = useState<ApprovalInfo[]>([]);
