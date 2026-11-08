@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { AgentEvent, AgentRunner } from "./agent-runner.ts";
+import type { AgentEvent, AgentRunner, AgentStatus } from "./agent-runner.ts";
 import { DEFAULT_WORKSPACE, openStore, type AgentRow, type Project } from "./db.ts";
 import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../shared/avatar.ts";
-import { writeHookConfig } from "./hooks.ts";
+import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
+import { handleAgentTools } from "./agent-tools.ts";
+import { createInbox } from "./inbox.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -36,6 +38,8 @@ export async function startDaemon(opts: DaemonOptions) {
     const text = JSON.stringify(msg);
     for (const s of sockets) if (s.readyState === s.OPEN) s.send(text);
   };
+
+  const inbox = createInbox(store, (item, open) => broadcast({ type: "inbox", item, open }));
 
   /** Per-agent secret that lets an agent's hooks report status; never listed by the API. */
   const hookTokens = new Map<string, string>();
@@ -133,12 +137,23 @@ export async function startDaemon(opts: DaemonOptions) {
       const hook = { url: `http://127.0.0.1:${port}/api/agents/${agent.id}/hook`, token };
       try { if (existsSync(project.path)) writeHookConfig(project.path, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
       broadcast({ type: "agent", agent: store.agent(agent.id) });
-      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task, hook }, (event: AgentEvent) => {
+      let mcpConfig: string | undefined;
+      try { if (existsSync(project.path)) mcpConfig = writeMcpConfig(project.path, agent.id, `http://127.0.0.1:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
+      opts.runner.start({ id: agent.id, name, projectId, cwd: project.path, task, hook, mcpConfig },(event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
         if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); }
         broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
       return send(res, 201, store.agent(agent.id));
+    }
+    if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
+    const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
+    if (im && method === "POST") {
+      const { decision, text } = await readJson(req);
+      if (!["approve", "deny", "reply"].includes(decision)) return send(res, 400, { error: "unknown decision" });
+      if (decision === "reply" && (typeof text !== "string" || !text.trim())) return send(res, 400, { error: "reply text required" });
+      const item = inbox.resolve(im[1]!, { decision, reply: typeof text === "string" && text ? text : undefined });
+      return item ? send(res, 200, item) : send(res, 404, { error: "unknown or already resolved" });
     }
     const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
     if (hm && method === "POST") {
@@ -192,6 +207,39 @@ export async function startDaemon(opts: DaemonOptions) {
 
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
+    const mm = path.match(/^\/mcp\/([^/]+)$/);
+    if (mm) {
+      const id = mm[1]!;
+      const agent = store.agent(id);
+      const expected = hookTokens.get(id);
+      if (!agent || !expected || req.headers["x-bridge-token"] !== expected) return send(res, 401, { error: "invalid token" });
+      const project = store.projects().find((p) => p.id === agent.projectId);
+      const setStatus = (status: AgentStatus) => {
+        store.setStatus(id, status);
+        const ev: AgentEvent = { type: "status", status };
+        const eventId = store.addEvent(id, ev);
+        broadcast({ type: "agent", agent: store.agent(id) });
+        broadcast({ type: "agent-event", agentId: id, eventId, event: ev });
+      };
+      handleAgentTools({
+        ticket: () => {
+          const t = project && agent.ticketId ? readTickets(project.path, project.id).find((x) => x.id === agent.ticketId) : undefined;
+          if (!t || !project) return null;
+          let body = "";
+          try { body = readFileSync(join(project.path, t.file), "utf8"); } catch { /* file gone */ }
+          return { key: t.key, title: t.title, status: t.status, blockers: t.blockers, file: t.file, body };
+        },
+        setStatus: (s) => { if (store.agent(id)?.status !== "done") setStatus(s); },
+        async raise(item) {
+          const { answer } = inbox.raise({ ...item, agentId: id, projectId: agent.projectId, ticketKey: agent.ticketKey });
+          setStatus("blocked");
+          const a = await answer;
+          if (store.agent(id)?.status === "blocked") setStatus("working");
+          return a;
+        },
+      }, req, res).catch(() => { if (!res.headersSent) send(res, 500, { error: "internal error" }); });
+      return;
+    }
     const run = path.startsWith("/api/") ? api(req, res, path) : Promise.resolve(serveStatic(res, path));
     run.catch(() => send(res, 500, { error: "internal error" }));
   });
@@ -218,6 +266,7 @@ export async function startDaemon(opts: DaemonOptions) {
     async close() {
       for (const stop of watchers.values()) stop();
       for (const s of sockets) s.terminate();
+      server.closeAllConnections();
       wss.close();
       await new Promise<void>((r) => server.close(() => r()));
       store.close();

@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { AgentsScreen, type AgentInfo } from "./agents.tsx";
+import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
@@ -32,7 +33,7 @@ function LeadCard({ agent }: { agent?: AgentInfo }) {
   );
 }
 
-function Sidebar({ project, projects, section, onSelect, onSwitch, lead }: { project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void; lead?: AgentInfo }) {
+function Sidebar({ project, projects, section, onSelect, onSwitch, lead, inbox }: { inbox: number; project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void; lead?: AgentInfo }) {
   const [open, setOpen] = useState(false);
   return (
     <nav aria-label="Primary" className="flex w-60 flex-none flex-col gap-1 bg-bg p-3">
@@ -64,6 +65,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, lead }: { pro
           className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left font-medium ${n === section ? "bg-surface-2 text-fg" : "text-fg-2 hover:bg-surface"}`}>
           <Icon d="M4 6h16M4 12h16M4 18h16" />
           <span className="flex-1">{n}</span>
+          {n === "Inbox" && <CountBadge n={inbox} />}
         </button>
       ))}
       <LeadCard agent={lead} />
@@ -71,7 +73,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, lead }: { pro
   );
 }
 
-function TopBar({ project, section, workers }: { project?: Project; section: string; workers: number }) {
+function TopBar({ project, section, workers, inbox }: { inbox: number; project?: Project; section: string; workers: number }) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line bg-bg px-5 py-2 text-[13px]">
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
@@ -80,6 +82,7 @@ function TopBar({ project, section, workers }: { project?: Project; section: str
         <span aria-current="page" className="font-semibold">{section}</span>
       </nav>
       <span className="flex-1" />
+      {inbox > 0 && <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5"><span className="font-semibold">{inbox}</span><span className="text-fg-3">in Inbox</span></span>}
       <span className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5">
         <span className="font-semibold">{workers}</span><span className="text-fg-3">/ 2 workers</span>
       </span>
@@ -176,6 +179,7 @@ function App() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [section, setSection] = useState("Board");
+  const inbox = useInbox();
 
   useEffect(() => {
     const load = () => {
@@ -194,11 +198,11 @@ function App() {
   const working = agents.filter((a) => a.status === "working").length;
   return (
     <div className="flex h-full">
-      <Sidebar lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
+      <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar project={project} section={section} workers={working} />
+        <TopBar inbox={inbox.open} project={project} section={section} workers={working} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : (
+          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

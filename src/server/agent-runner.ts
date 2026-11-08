@@ -17,6 +17,8 @@ export interface AgentSpec {
   task?: string;
   /** Where the agent reports status (set by the daemon; the token authenticates it). */
   hook?: { url: string; token: string };
+  /** Path of the per-agent MCP config exposing the Bridge tools (pass to the CLI with --mcp-config). */
+  mcpConfig?: string;
 }
 
 /** Starts and stops agents and reports what they do. */

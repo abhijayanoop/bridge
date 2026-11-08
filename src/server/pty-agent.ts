@@ -32,7 +32,7 @@ export function resolveCommand(command: string, env: NodeJS.ProcessEnv = process
 export function createPtyAgentRunner(opts: PtyRunnerOptions = {}): AgentRunner {
   const sessions = new Map<string, pty.IPty>();
   const command = opts.command ?? "claude";
-  const argsFor = opts.args ?? ((spec: AgentSpec) => (spec.task ? [spec.task] : []));
+  const argsFor = opts.args ?? ((spec: AgentSpec) => [...(spec.task ? [spec.task] : []), ...(spec.mcpConfig ? ["--mcp-config", spec.mcpConfig] : [])]);
   return {
     start(spec, emit: (event: AgentEvent) => void) {
       const env = { ...process.env, ...opts.env } as Record<string, string>;

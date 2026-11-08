@@ -4,11 +4,11 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Agent tools exist for get-my-ticket, set-status, ask-user and request-access
-- [ ] Inbox lists questions, access requests, plan approvals and ready-to-merge items
-- [ ] Approve, Deny and Reply reach the waiting agent
-- [ ] Sidebar and top-bar badges show the Inbox count
+- [x] Agent tools exist for get-my-ticket, set-status, ask-user and request-access
+- [x] Inbox lists questions, access requests, plan approvals and ready-to-merge items
+- [x] Approve, Deny and Reply reach the waiting agent
+- [x] Sidebar and top-bar badges show the Inbox count

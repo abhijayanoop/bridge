@@ -58,7 +58,7 @@ describe("agent status hooks via the public API", () => {
     await startAgent();
     await startAgent();
     const settings = JSON.parse(readFileSync(join(repo, ".claude", "settings.local.json"), "utf8"));
-    expect(settings.permissions.allow).toEqual(["Bash(ls)"]);
+    expect(settings.permissions.allow).toEqual(["Bash(ls)", "mcp__bridge"]);
     expect(settings.hooks.Stop).toHaveLength(1);
   });
 

@@ -35,6 +35,29 @@ const EVENTS: Record<string, string> = {
 };
 
 /**
+ * Writes this agent's MCP config to `.claude/bridge-mcp-<agentId>.json` (pass it to the CLI with
+ * `--mcp-config`) and allows the Bridge tools in `settings.local.json`. Existing files are merged.
+ * Returns the config path.
+ */
+export function writeMcpConfig(cwd: string, agentId: string, url: string, token: string): string {
+  const dir = join(cwd, ".claude");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `bridge-mcp-${agentId}.json`);
+  let config: any = {};
+  try { config = JSON.parse(readFileSync(file, "utf8")); } catch { /* new file */ }
+  config.mcpServers = { ...config.mcpServers, bridge: { type: "http", url, headers: { "x-bridge-token": token } } };
+  writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
+  const settingsFile = join(dir, "settings.local.json");
+  let settings: any = {};
+  try { settings = JSON.parse(readFileSync(settingsFile, "utf8")); } catch { /* new file */ }
+  settings.permissions ??= {};
+  const allow: string[] = (settings.permissions.allow ??= []);
+  if (!allow.includes("mcp__bridge")) allow.push("mcp__bridge");
+  writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + "\n");
+  return file;
+}
+
+/**
  * Writes the hook script and Claude Code hook config into an agent's workspace
  * (`.claude/settings.local.json`, merged with anything already there).
  */

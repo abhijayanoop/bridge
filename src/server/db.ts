@@ -8,6 +8,15 @@ export interface Project { id: string; name: string; path: string; workspaceId: 
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
 export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; activity?: string | null; avatarState?: AvatarState }
+export type InboxKind = "question" | "access" | "plan" | "merge";
+export interface InboxItem {
+  id: string; agentId: string; projectId: string; kind: InboxKind;
+  /** For access requests: domain, secret, push or database. */
+  access?: string | null;
+  what: string; why: string; facts: { k: string; v: string }[];
+  ticketKey?: string | null; createdAt: number;
+  status: "open" | "resolved"; decision?: "approve" | "deny" | "reply" | null; reply?: string | null; resolvedAt?: number | null;
+}
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
 export function openStore(dataDir: string) {
@@ -21,6 +30,7 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
   if (!(db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).some((c) => c.name === "workspace_id")) {
@@ -71,6 +81,21 @@ export function openStore(dataDir: string) {
     events(agentId: string): StoredEvent[] {
       const rows = db.prepare("SELECT id, agent_id, json FROM events WHERE agent_id = ? ORDER BY id").all(agentId) as unknown as { id: number; agent_id: string; json: string }[];
       return rows.map((r) => ({ id: r.id, agentId: r.agent_id, event: JSON.parse(r.json) as AgentEvent }));
+    },
+    addInbox(item: InboxItem) {
+      db.prepare("INSERT INTO inbox (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM inbox))").run(item.id, JSON.stringify(item));
+    },
+    inboxItem(id: string): InboxItem | undefined {
+      const row = db.prepare("SELECT json FROM inbox WHERE id = ?").get(id) as { json: string } | undefined;
+      return row ? (JSON.parse(row.json) as InboxItem) : undefined;
+    },
+    /** Newest first. */
+    inboxItems(): InboxItem[] {
+      const rows = db.prepare("SELECT json FROM inbox ORDER BY seq DESC").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as InboxItem);
+    },
+    updateInbox(item: InboxItem) {
+      db.prepare("UPDATE inbox SET json = ? WHERE id = ?").run(JSON.stringify(item), item.id);
     },
     close() { db.close(); },
   };
