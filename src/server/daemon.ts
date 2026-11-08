@@ -9,6 +9,7 @@ import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../sha
 import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
 import { handleAgentTools } from "./agent-tools.ts";
 import { createInbox } from "./inbox.ts";
+import { SCOPES, createApprovals, type NetworkRules } from "./approvals.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -18,6 +19,8 @@ export interface DaemonOptions {
   port?: number;
   /** Directory of the built UI; omitted means API only. */
   webDir?: string;
+  /** The sandbox's network allow-list that Bridge-approved domains are added to. Defaults to a no-op. */
+  networkRules?: NetworkRules;
 }
 
 const MIME: Record<string, string> = {
@@ -40,6 +43,8 @@ export async function startDaemon(opts: DaemonOptions) {
   };
 
   const inbox = createInbox(store, (item, open) => broadcast({ type: "inbox", item, open }));
+
+  const approvals = createApprovals(store, opts.networkRules ?? { add: () => true, remove: () => {} });
 
   /** Per-agent secret that lets an agent's hooks report status; never listed by the API. */
   const hookTokens = new Map<string, string>();
@@ -149,11 +154,22 @@ export async function startDaemon(opts: DaemonOptions) {
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
     if (im && method === "POST") {
-      const { decision, text } = await readJson(req);
+      const { decision, text, scope = "once" } = await readJson(req);
       if (!["approve", "deny", "reply"].includes(decision)) return send(res, 400, { error: "unknown decision" });
       if (decision === "reply" && (typeof text !== "string" || !text.trim())) return send(res, 400, { error: "reply text required" });
+      if (!(SCOPES as readonly string[]).includes(scope)) return send(res, 400, { error: "unknown scope" });
+      const open = store.inboxItem(im[1]!);
+      const grants = decision === "approve" && open?.status === "open" && open.kind === "access";
+      if (grants && scope === "ticket" && !open.ticketKey) return send(res, 400, { error: "this agent has no ticket" });
       const item = inbox.resolve(im[1]!, { decision, reply: typeof text === "string" && text ? text : undefined });
+      if (item && grants) approvals.grant(item, scope);
       return item ? send(res, 200, item) : send(res, 404, { error: "unknown or already resolved" });
+    }
+    if (path === "/api/approvals" && method === "GET") return send(res, 200, approvals.list());
+    const am = path.match(/^\/api\/approvals\/([^/]+)$/);
+    if (am && method === "DELETE") {
+      const a = approvals.revoke(am[1]!);
+      return a ? send(res, 200, a) : send(res, 404, { error: "unknown or already undone" });
     }
     const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
     if (hm && method === "POST") {
@@ -230,6 +246,10 @@ export async function startDaemon(opts: DaemonOptions) {
           return { key: t.key, title: t.title, status: t.status, blockers: t.blockers, file: t.file, body };
         },
         setStatus: (s) => { if (store.agent(id)?.status !== "done") setStatus(s); },
+        async requestAccess(kind, detail, item) {
+          if (approvals.covering(agent.projectId, agent.ticketKey ?? null, kind, detail)) return { decision: "approve" };
+          return this.raise(item);
+        },
         async raise(item) {
           const { answer } = inbox.raise({ ...item, agentId: id, projectId: agent.projectId, ticketKey: agent.ticketKey });
           setStatus("blocked");

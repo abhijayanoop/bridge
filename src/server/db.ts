@@ -13,9 +13,19 @@ export interface InboxItem {
   id: string; agentId: string; projectId: string; kind: InboxKind;
   /** For access requests: domain, secret, push or database. */
   access?: string | null;
+  /** For access requests: the domain, secret name, branch or database asked for. */
+  detail?: string | null;
   what: string; why: string; facts: { k: string; v: string }[];
   ticketKey?: string | null; createdAt: number;
   status: "open" | "resolved"; decision?: "approve" | "deny" | "reply" | null; reply?: string | null; resolvedAt?: number | null;
+}
+export type ApprovalScope = "once" | "ticket" | "project";
+/** A decision to allow something. Ticket and project grants are reused; all are listed so they can be undone. */
+export interface Approval {
+  id: string; projectId: string; ticketKey: string | null; access: string; detail: string; scope: ApprovalScope;
+  createdAt: number; revokedAt: number | null;
+  /** True when Bridge added the network rule for this domain, so only Bridge removes it. */
+  ownsRule: boolean;
 }
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
@@ -31,6 +41,7 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
   if (!(db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).some((c) => c.name === "workspace_id")) {
@@ -96,6 +107,21 @@ export function openStore(dataDir: string) {
     },
     updateInbox(item: InboxItem) {
       db.prepare("UPDATE inbox SET json = ? WHERE id = ?").run(JSON.stringify(item), item.id);
+    },
+    addApproval(a: Approval) {
+      db.prepare("INSERT INTO approvals (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM approvals))").run(a.id, JSON.stringify(a));
+    },
+    approval(id: string): Approval | undefined {
+      const row = db.prepare("SELECT json FROM approvals WHERE id = ?").get(id) as { json: string } | undefined;
+      return row ? (JSON.parse(row.json) as Approval) : undefined;
+    },
+    /** Oldest first. */
+    approvals(): Approval[] {
+      const rows = db.prepare("SELECT json FROM approvals ORDER BY seq").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as Approval);
+    },
+    updateApproval(a: Approval) {
+      db.prepare("UPDATE approvals SET json = ? WHERE id = ?").run(JSON.stringify(a), a.id);
     },
     close() { db.close(); },
   };

@@ -1,15 +1,21 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { MERGE_CHECK_SOURCE } from "./approvals.ts";
 
 const SCRIPT = (url: string, token: string) => `// Written by Bridge. Reports this agent's state to the local Bridge daemon.
 // Usage: node bridge-hook.mjs <idle|working|blocked|waiting|done> [activity]
 const [status, activity] = process.argv.slice(2);
+const isMergeCommand = ${MERGE_CHECK_SOURCE};
 let raw = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => { raw += c; });
 const send = async () => {
   let input = {};
   try { input = JSON.parse(raw || "{}"); } catch {}
+  if (input.tool_name === "Bash" && typeof input.tool_input?.command === "string" && isMergeCommand(input.tool_input.command)) {
+    process.stderr.write("Bridge refused this command: agents may never merge. Push your branch and open a pull request; the user merges.\\n");
+    process.exit(2);
+  }
   const body = { status, activity, tool: input.tool_name, command: typeof input.tool_input?.command === "string" ? input.tool_input.command.slice(0, 300) : undefined };
   try {
     await fetch(${JSON.stringify(url)}, { method: "POST", headers: { "content-type": "application/json", "x-bridge-token": ${JSON.stringify(token)} }, body: JSON.stringify(body), signal: AbortSignal.timeout(2000) });

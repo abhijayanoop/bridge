@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Once, Ticket and Project scopes behave as described and can be undone
-- [ ] New network domains, secrets, pushes and database access require approval
-- [ ] Any attempt by an agent to merge is refused, covered by a test
-- [ ] Rules Bridge adds are tracked so only its own are removed
+- [x] Once, Ticket and Project scopes behave as described and can be undone
+- [x] New network domains, secrets, pushes and database access require approval
+- [x] Any attempt by an agent to merge is refused, covered by a test
+- [x] Rules Bridge adds are tracked so only its own are removed

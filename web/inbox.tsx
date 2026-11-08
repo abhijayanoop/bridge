@@ -22,7 +22,7 @@ const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) /
 const outcome = (i: InboxItemInfo) => i.decision === "approve" ? "Approved" : i.decision === "deny" ? "Denied" : `Replied: ${i.reply ?? ""}`;
 const btn = "inline-flex h-8 items-center rounded-lg border border-line px-3 text-[13px] font-medium hover:bg-surface-2";
 
-function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentInfo; onResolve: (id: string, decision: string, text?: string) => void }) {
+function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentInfo; onResolve: (id: string, decision: string, text?: string, scope?: string) => void }) {
   const [replying, setReplying] = useState(false);
   const [text, setText] = useState("");
   const open = item.status === "open";
@@ -53,7 +53,9 @@ function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentIn
         )}
         {open ? (
           <div className="flex gap-2 pt-1">
-            {!askable && <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg`} onClick={() => onResolve(item.id, "approve")}>Approve</button>}
+            {!askable && <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg`} onClick={() => onResolve(item.id, "approve", undefined, "once")}>{item.kind === "access" ? "Approve once" : "Approve"}</button>}
+            {item.kind === "access" && item.ticketKey && <button type="button" className={btn} onClick={() => onResolve(item.id, "approve", undefined, "ticket")}>This ticket</button>}
+            {item.kind === "access" && <button type="button" className={btn} onClick={() => onResolve(item.id, "approve", undefined, "project")}>Whole project</button>}
             {!askable && <button type="button" className={btn} onClick={() => onResolve(item.id, "deny")}>Deny</button>}
             <button type="button" className={btn} onClick={() => setReplying(!replying)}>Reply</button>
           </div>
@@ -64,11 +66,37 @@ function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentIn
 }
 
 /** The Inbox screen: everything that needs the user, newest first, with resolved items kept below. */
+export interface ApprovalInfo { id: string; access: string; detail: string; scope: "once" | "ticket" | "project"; ticketKey: string | null; revokedAt: number | null }
+const SCOPE_LABEL = { once: "Once", ticket: "This ticket", project: "Whole project" };
+
+/** Approvals the user has given, each with an Undo. */
+function Approvals({ list, onUndo }: { list: ApprovalInfo[]; onUndo: (id: string) => void }) {
+  const shown = list.filter((a) => !a.revokedAt && a.scope !== "once").reverse();
+  if (shown.length === 0) return null;
+  return (
+    <section aria-label="Approvals you have given" className="mt-4 flex flex-col gap-2">
+      <h2 className="text-[13px] font-semibold text-fg-2">Standing approvals</h2>
+      {shown.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-2 text-[13px]">
+          <span className="text-fg-3">{ACCESS_CHIP[a.access] ?? a.access}</span>
+          <span className="min-w-0 flex-1 truncate font-mono">{a.detail}</span>
+          <span className="text-fg-3">{a.scope === "ticket" ? `Ticket ${a.ticketKey}` : SCOPE_LABEL[a.scope]}</span>
+          <button type="button" className={btn} onClick={() => onUndo(a.id)}>Undo</button>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function InboxScreen({ agents, items, reload }: { agents: AgentInfo[]; items: InboxItemInfo[]; reload: () => void }) {
   const [filter, setFilter] = useState(0);
+  const [approvals, setApprovals] = useState<ApprovalInfo[]>([]);
+  const loadApprovals = () => { fetch("/api/approvals").then((r) => r.json()).then(setApprovals).catch(() => {}); };
+  useEffect(loadApprovals, [items]);
+  const undo = (id: string) => { fetch(`/api/approvals/${id}`, { method: "DELETE" }).then(loadApprovals).catch(loadApprovals); };
   const shown = items.filter(FILTERS[filter]!.match);
-  const resolve = (id: string, decision: string, text?: string) => {
-    fetch(`/api/inbox/${id}/resolve`, { method: "POST", body: JSON.stringify({ decision, text }) }).then(reload).catch(reload);
+  const resolve = (id: string, decision: string, text?: string, scope?: string) => {
+    fetch(`/api/inbox/${id}/resolve`, { method: "POST", body: JSON.stringify({ decision, text, scope }) }).then(reload).catch(reload);
   };
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-3">
@@ -85,6 +113,7 @@ export function InboxScreen({ agents, items, reload }: { agents: AgentInfo[]; it
       </div>
       {shown.length === 0 && <div className="grid h-40 place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing needs you right now.</div>}
       {shown.map((i) => <Item key={i.id} item={i} agent={agents.find((a) => a.id === i.agentId)} onResolve={resolve} />)}
+      <Approvals list={approvals} onUndo={undo} />
     </div>
   );
 }

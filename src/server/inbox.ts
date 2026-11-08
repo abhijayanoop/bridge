@@ -5,7 +5,7 @@ export type Decision = "approve" | "deny" | "reply";
 export interface Answer { decision: Decision; reply?: string }
 
 export type NewInboxItem = Pick<InboxItem, "agentId" | "projectId" | "kind" | "what"> &
-  Partial<Pick<InboxItem, "access" | "why" | "facts" | "ticketKey">>;
+  Partial<Pick<InboxItem, "access" | "detail" | "why" | "facts" | "ticketKey">>;
 
 interface Persistence {
   addInbox(item: InboxItem): void;

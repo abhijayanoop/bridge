@@ -11,6 +11,8 @@ export interface AgentToolContext {
   setStatus(status: AgentStatus): void;
   /** Creates an Inbox item and resolves when the user answers. */
   raise(item: Omit<NewInboxItem, "agentId" | "projectId">): Promise<Answer>;
+  /** Raises an access request, or approves it at once when an earlier Ticket or Project approval covers it. */
+  requestAccess(kind: string, detail: string, item: Omit<NewInboxItem, "agentId" | "projectId">): Promise<Answer>;
 }
 
 const STATUSES = ["idle", "working", "blocked", "waiting", "done"] as const;
@@ -37,16 +39,17 @@ function buildServer(ctx: AgentToolContext): McpServer {
     return a.decision === "reply" ? text(a.reply ?? "") : verdict(a, question);
   });
   server.registerTool("request_access", {
-    description: "Request access you do not have: a network domain, a secret, a git push or a database. Blocks until the user decides in the Bridge Inbox.",
+    description: "Request access you do not have: a network domain, a secret, a git push or a database. Blocks until the user decides in the Bridge Inbox. Merging is never allowed: the user merges.",
     inputSchema: {
-      kind: z.enum(["domain", "secret", "push", "database"]),
+      kind: z.enum(["domain", "secret", "push", "database", "merge"]),
       detail: z.string().describe("The domain, secret name, branch or database"),
       why: z.string().optional(),
     },
   }, async ({ kind, detail, why }) => {
+    if (kind === "merge") return text("Refused: agents may never merge. Push your branch and open a pull request; the user merges.");
     const label = { domain: "Domain", secret: "Secret", push: "Branch", database: "Database" }[kind];
     const what = { domain: `Reach ${detail}`, secret: `Use ${detail}`, push: `Push ${detail}`, database: `Access ${detail}` }[kind];
-    const a = await ctx.raise({ kind: "access", access: kind, what, why: why ?? "", facts: [{ k: label, v: detail }] });
+    const a = await ctx.requestAccess(kind, detail, { kind: "access", access: kind, detail, what, why: why ?? "", facts: [{ k: label, v: detail }] });
     return verdict(a, what);
   });
   return server;
