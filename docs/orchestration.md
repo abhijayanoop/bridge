@@ -19,3 +19,7 @@ Use this when a session is cleared or restarted. State lives in files and git, n
 ## Approvals
 
 Ask the user through a question prompt and a push notification (Remote Control, mobile). Needed for: installing sbx, pushing to GitHub, deleting anything, anything outside this folder.
+
+## Marking a ticket done
+
+After merging a ticket into `main`, set its `**Status:**` line to `done` and commit. The Board reads that line (acceptance checkboxes do not move a card), so a merged ticket left at `ready-for-agent` shows in Backlog.

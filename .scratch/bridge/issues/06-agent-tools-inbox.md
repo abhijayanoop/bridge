@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** in-review
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 
