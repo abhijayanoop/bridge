@@ -120,8 +120,11 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
         return { ok: true };
       } catch (err) {
         try { git(projectPath, "merge", "--abort"); } catch { /* nothing to abort */ }
-        const detail = String((err as { stdout?: string }).stdout ?? "").split(/\r?\n/).find((l) => /conflict/i.test(l));
-        return fail(`merging ${branch} hit a conflict${detail ? ` (${detail.trim()})` : ""}; it was undone, resolve it in your repo`);
+        const out = err as { stdout?: string; stderr?: string };
+        const conflict = String(out.stdout ?? "").split(/\r?\n/).find((l) => /conflict/i.test(l));
+        if (conflict) return fail(`merging ${branch} hit a conflict (${conflict.trim()}); it was undone, resolve it in your repo`);
+        const why = String(out.stderr ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 3).join(" ");
+        return fail(`merging ${branch} failed: ${why || "git merge exited with an error"}`);
       }
     },
     /** Returns null when the project is not a git repository (the agent then works in place). */

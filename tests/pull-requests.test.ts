@@ -39,8 +39,9 @@ async function boot(result?: (c: Call) => PullResult, options: BootOptions = {})
   git(repo, "init", "-b", "main"); git(repo, "add", "-A"); git(repo, "commit", "-m", "init");
   const daemon = await startDaemon({ dataDir: join(dir, "data"), runner: createFakeAgentRunner([]), github, pullPollMs: options.pollMs ?? 0 });
   cleanups.push(() => daemon.close());
-  const call = async (method: string, path: string, body?: unknown) => {
-    const r = await fetch(daemon.url + path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+  /** Like the Bridge UI, requests carry x-bridge-ui unless a test passes other headers. */
+  const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-bridge-ui": "1" }) => {
+    const r = await fetch(daemon.url + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: r.status, json: (await r.json()) as any };
   };
   const project = (await call("POST", "/api/projects", { name: "demo", path: repo })).json;
@@ -101,7 +102,8 @@ describe("pull requests", { timeout: 40_000 }, () => {
     await expect.poll(() => asked.length).toBeGreaterThan(1);
     expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
     state = null; // GitHub unreachable: nothing changes
-    await new Promise((r) => setTimeout(r, 80));
+    const seen = asked.length;
+    await expect.poll(() => asked.length).toBeGreaterThan(seen + 1);
     expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
     state = "closed";
     await expect.poll(async () => (await t.call("GET", "/api/pulls")).json[0].state).toBe("closed");
@@ -134,6 +136,21 @@ describe("pull requests", { timeout: 40_000 }, () => {
     expect((await t.call("POST", `/api/pulls/${pull.id}/merge`, {})).status).toBe(409);
     expect(merged).toHaveLength(1);
     expect((await t.call("POST", "/api/pulls/nope/merge", {})).status).toBe(404);
+  });
+
+  it("refuses a merge request that did not come from the Bridge UI (a web page or script without its header)", async () => {
+    const merged: number[] = [];
+    const t = await boot(undefined, { github: { mergePullRequest: async ({ number }) => { merged.push(number); return { ok: true }; } } });
+    const agent = await t.startAgent();
+    await t.finish(agent);
+    await expect.poll(async () => (await t.call("GET", "/api/pulls")).json.length).toBe(1);
+    const [pull] = (await t.call("GET", "/api/pulls")).json;
+    const r = await t.call("POST", `/api/pulls/${pull.id}/merge`, {}, {});
+    expect(r.status).toBe(403);
+    // A cross-origin page can only send simple requests; a wrong header value does not count either.
+    expect((await t.call("POST", `/api/pulls/${pull.id}/merge`, {}, { "x-bridge-ui": "0" })).status).toBe(403);
+    expect(merged).toEqual([]);
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
   });
 
   it("a failed merge is reported and leaves the pull request open", async () => {
@@ -244,6 +261,17 @@ describe("local-only repos (no GitHub remote)", { timeout: 40_000 }, () => {
     expect(readFileSync(join(t.repo, "app.txt"), "utf8")).toBe("my work in progress\n");
     expect(() => git(t.repo, "show", "HEAD:hello.py")).toThrow();
     expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+  });
+
+  it("a merge that fails for another reason is reported as that, not as a conflict", async () => {
+    const t = await finished();
+    writeFileSync(join(t.repo, "hello.py"), "print('untracked, in the way')\n");
+    const r = await t.merge();
+    expect(r.status).toBe(409);
+    expect(r.json.error).not.toMatch(/conflict/i);
+    expect(r.json.error).toContain("hello.py");
+    expect((await t.call("GET", "/api/pulls")).json[0].state).toBe("open");
+    expect(readFileSync(join(t.repo, "hello.py"), "utf8")).toContain("untracked, in the way");
   });
 
   it("a conflicting merge is undone and reported, leaving the working copy as it was", async () => {

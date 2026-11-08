@@ -234,6 +234,9 @@ export async function startDaemon(opts: DaemonOptions) {
     if (path === "/api/pulls") return send(res, 200, store.pulls());
     const pullMerge = path.match(/^\/api\/pulls\/([^/]+)\/merge$/);
     if (pullMerge && method === "POST") {
+      // Only the Bridge UI sends this header. A web page cannot add it to a cross-origin request without a
+      // preflight the daemon never allows. It does not stop a local process that sets the header itself.
+      if (req.headers["x-bridge-ui"] !== "1") return send(res, 403, { error: "merging is done from the Bridge Review screen" });
       const r = await pulls.merge(pullMerge[1]!);
       if (r.code === 200) drain();
       return send(res, r.code, r.body);

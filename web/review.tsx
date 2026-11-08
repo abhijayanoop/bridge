@@ -35,7 +35,7 @@ function MergeButton({ pull }: { pull: PullInfo }) {
   const merge = async () => {
     setStep("merging"); setError("");
     try {
-      const r = await fetch(`/api/pulls/${pull.id}/merge`, { method: "POST", body: "{}" });
+      const r = await fetch(`/api/pulls/${pull.id}/merge`, { method: "POST", headers: { "x-bridge-ui": "1" }, body: "{}" });
       if (!r.ok) setError(String(((await r.json()) as { error?: string }).error ?? "Merge failed"));
     } catch { setError("Could not reach Bridge"); }
     setStep("idle");

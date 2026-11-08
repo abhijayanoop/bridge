@@ -111,6 +111,7 @@ export function createPullRaiser(deps: PullRaiserDeps) {
           }
           if (!r.ok) { deps.say(agentId, `Could not open a pull request: ${r.reason}`); return; }
           if (!deps.pulls().some((p) => p.url === r.url)) record({ url: r.url, number: r.number });
+          else if (agent.ticketId) deps.setColumn(project, agent.ticketId, "review");
           deps.say(agentId, `Pull request #${r.number} ${r.existing ? "already exists" : "opened"}: ${r.url}`);
         })
         .catch((err) => deps.say(agentId, `Could not open a pull request: ${(err as Error).message}`))
