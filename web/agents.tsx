@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PullChip, type PullInfo } from "./review.tsx";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -84,7 +85,7 @@ function TerminalDrawer({ agent, onClose }: { agent: AgentInfo; onClose: () => v
   );
 }
 
-export function AgentsScreen({ projectId, agents }: { projectId?: string; agents: AgentInfo[] }) {
+export function AgentsScreen({ projectId, agents, pulls = [] }: { projectId?: string; agents: AgentInfo[]; pulls?: PullInfo[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [tickets, setTickets] = useState<TicketOpt[]>([]);
   const [pick, setPick] = useState("");
@@ -129,6 +130,7 @@ export function AgentsScreen({ projectId, agents }: { projectId?: string; agents
                 <ThinkingOrb state={a.avatarState ?? "idle"} color={a.color ?? "#0A84FF"} size={32} />
                 <span className="w-28 flex-none text-right text-xs text-fg-2">{STATE_LABELS[(a.avatarState ?? "idle") as keyof typeof STATE_LABELS] ?? a.status}</span>
               </button>
+              {pulls.filter((p) => p.agentId === a.id).slice(0, 1).map((p) => <PullChip key={p.id} pull={p} />)}
               <button type="button" onClick={() => remove(a)} aria-label={`Delete ${a.name}`} className="my-2 mr-2 h-9 flex-none self-center rounded-lg border border-line px-3 text-[13px] text-fg-2 hover:bg-surface-2 hover:text-fg">Delete</button>
             </li>
           ))}

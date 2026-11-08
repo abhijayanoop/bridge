@@ -11,6 +11,8 @@ import { handleAgentTools } from "./agent-tools.ts";
 import { createInbox } from "./inbox.ts";
 import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./approvals.ts";
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
+import type { GitHub } from "./github.ts";
+import { createPullRaiser } from "./pull-requests.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
 export interface DaemonOptions {
@@ -30,6 +32,8 @@ export interface DaemonOptions {
   sandboxNotice?: string;
   /** Host name agents use to reach this daemon in hook and MCP URLs. Sandboxes need `host.docker.internal`. */
   agentHost?: string;
+  /** Opens a pull request when an agent finishes a ticket. Omitted means no pull requests (tests, fake agent). */
+  github?: GitHub;
 }
 
 const MIME: Record<string, string> = {
@@ -84,18 +88,38 @@ export async function startDaemon(opts: DaemonOptions) {
    * Makes an agent's branch available in the user's own repo (a fetch from its clone), at idle, done, stop and
    * delete. Tells the agent's terminal once where to find it.
    */
-  const publishBranch = (agentId: string) => {
+  const publishBranch = (agentId: string): string | null => {
     const a = store.agent(agentId);
     const project = a && store.projects().find((p) => p.id === a.projectId);
-    if (!a || !project) return;
+    if (!a || !project) return null;
     const branch = workspaces.publish(agentId, project.path, agentBranch.get(agentId));
-    if (!branch || announced.has(agentId)) return;
+    if (!branch) return null;
+    agentBranch.set(agentId, branch);
+    if (announced.has(agentId)) return branch;
     announced.add(agentId);
     const event: AgentEvent = { type: "output", data: `
 [Bridge] Branch ${branch} is now in your repo. Review it with: git log ${branch}
 ` };
     broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
+    return branch;
   };
+
+  const pulls = createPullRaiser({
+    github: opts.github,
+    agent: (id) => store.agent(id),
+    project: (id) => store.projects().find((p) => p.id === id),
+    ticket: (project, ticketId) => readTickets(project.path, project.id).find((t) => t.id === ticketId),
+    fileAt: (path, branch, file) => workspaces.fileAt(path, branch, file),
+    pulls: () => store.pulls(),
+    addPull: (p) => store.addPull(p),
+    say: (agentId, text) => {
+      const event: AgentEvent = { type: "output", data: `\r\n[Bridge] ${text}\r\n` };
+      broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
+    },
+    broadcast,
+  });
+  /** An agent finished its ticket: publish its branch, then open its pull request. */
+  const onDone = (agentId: string) => { const branch = publishBranch(agentId); if (branch) pulls.raise(agentId, branch); };
 
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
@@ -113,6 +137,7 @@ export async function startDaemon(opts: DaemonOptions) {
   async function api(req: IncomingMessage, res: ServerResponse, path: string) {
     const method = req.method ?? "GET";
     if (path === "/api/health") return send(res, 200, { ok: true });
+    if (path === "/api/pulls") return send(res, 200, store.pulls());
     if (path === "/api/sandbox") return send(res, 200, { mode, message: opts.sandboxNotice ?? "" });
     if (path === "/api/projects" && method === "GET") return send(res, 200, store.projects());
     if (path === "/api/projects" && method === "POST") {
@@ -201,7 +226,7 @@ export async function startDaemon(opts: DaemonOptions) {
       try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
       opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
-        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done" || event.status === "idle") publishBranch(agent.id); }
+        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done") onDone(agent.id); else if (event.status === "idle") publishBranch(agent.id); }
         broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
       return send(res, 201, { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } });
@@ -230,8 +255,10 @@ export async function startDaemon(opts: DaemonOptions) {
     if (dm && method === "DELETE") {
       const a = store.agent(dm[1]!);
       if (!a) return send(res, 404, { error: "unknown agent" });
+      pulls.userStopped(a.id);
       opts.runner.stop(a.id);
       publishBranch(a.id);
+      pulls.forget(a.id);
       agentBranch.delete(a.id); announced.delete(a.id);
       hookTokens.delete(a.id);
       store.deleteAgent(a.id);
@@ -265,7 +292,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const agent = store.agent(prev.id);
       broadcast({ type: "agent", agent });
       broadcast({ type: "agent-event", agentId: prev.id, eventId, event: ev });
-      if (status === "done" || status === "idle") publishBranch(prev.id);
+      if (status === "done") onDone(prev.id); else if (status === "idle") publishBranch(prev.id);
       return send(res, 200, agent);
     }
     const m = path.match(/^\/api\/agents\/([^/]+)\/(events|stop)$/);
@@ -274,6 +301,7 @@ export async function startDaemon(opts: DaemonOptions) {
       if (m[2] === "stop" && method === "POST") {
         const a = store.agents().find((x) => x.id === m[1]);
         if (!a) return send(res, 404, { error: "unknown agent" });
+        pulls.userStopped(a.id);
         opts.runner.stop(a.id);
         if (a.status !== "done") {
           const ev: AgentEvent = { type: "status", status: "done" };
@@ -324,7 +352,7 @@ export async function startDaemon(opts: DaemonOptions) {
           try { body = readFileSync(join(project.path, t.file), "utf8"); } catch { /* file gone */ }
           return { key: t.key, title: t.title, status: t.status, blockers: t.blockers, file: t.file, body };
         },
-        setStatus: (s) => { if (store.agent(id)?.status !== "done") setStatus(s); },
+        setStatus: (s) => { if (store.agent(id)?.status !== "done") { setStatus(s); if (s === "done") onDone(id); } },
         async requestAccess(kind, detail, item) {
           if (approvals.covering(agent.projectId, agent.ticketKey ?? null, kind, detail)) return { decision: "approve" };
           return this.raise(item);

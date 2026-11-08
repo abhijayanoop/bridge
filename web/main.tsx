@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { AgentsScreen, type AgentInfo } from "./agents.tsx";
 import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
+import { ReviewScreen, type PullInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
@@ -177,6 +178,7 @@ function Board({ project, agents }: { project?: Project; agents: AgentInfo[] }) 
 function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [pulls, setPulls] = useState<PullInfo[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [section, setSection] = useState("Board");
   const inbox = useInbox();
@@ -186,6 +188,7 @@ function App() {
       fetch("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});
       fetch("/api/active-project").then((r) => r.json()).then((p) => setActiveId(p.id)).catch(() => {});
       fetch("/api/agents").then((r) => r.json()).then(setAgents).catch(() => {});
+      fetch("/api/pulls").then((r) => r.json()).then(setPulls).catch(() => {});
     };
     load();
     const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
@@ -202,7 +205,7 @@ function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar inbox={inbox.open} project={project} section={section} workers={working} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : (
+          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

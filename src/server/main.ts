@@ -5,6 +5,7 @@ import { startDaemon } from "./daemon.ts";
 import { createFakeAgentRunner } from "./fake-agent.ts";
 import { createPtyAgentRunner } from "./pty-agent.ts";
 import { resolveSandbox } from "./sbx.ts";
+import { createGitHubCli } from "./github.ts";
 import { discoverPocockSkills } from "./workspace.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -24,6 +25,7 @@ console.log(sandbox.notice);
 const daemon = await startDaemon({
   dataDir, port, skills: discoverPocockSkills(), webDir: join(root, "dist", "web"),
   runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice,
+  github: fake ? undefined : createGitHubCli(),
   agentHost: sandbox.mode === "sandbox" ? "host.docker.internal" : undefined,
 });
 console.log(`Bridge listening on ${daemon.url}`);

@@ -69,6 +69,7 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
      * tree; a branch that already diverged is left alone. Returns the branch, or null if there was nothing to fetch.
      */
     publish(agentId: string, projectPath: string, branch?: string): string | null {
+
       if (!/^[\w-]+$/.test(agentId)) return null;
       const clone = join(opts.clonesDir, agentId);
       if (!isGitRepo(clone) || !isGitRepo(projectPath)) return null;
@@ -76,9 +77,17 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
         const name = branch ?? git(clone, "rev-parse", "--abbrev-ref", "HEAD");
         if (!name || name === "HEAD") return null;
         git(clone, "rev-parse", "--verify", "--quiet", `refs/heads/${name}`);
-        git(projectPath, "fetch", "--quiet", clone, `refs/heads/${name}:refs/heads/${name}`);
-        return name;
+        const fetchAs = (target: string) => git(projectPath, "fetch", "--quiet", clone, `refs/heads/${name}:refs/heads/${target}`);
+        try { fetchAs(name); return name; } catch (err) {
+          // A branch of that name already exists and has diverged (an earlier run of the same ticket): keep it, use a unique name.
+          const alt = `${name}-${agentId.slice(0, 8)}`;
+          try { fetchAs(alt); return alt; } catch { throw err; }
+        }
       } catch { return null; }
+    },
+    /** Contents of a file on a branch of the user's repo, or "" if it is not there. */
+    fileAt(projectPath: string, branch: string, file: string): string {
+      try { return execFileSync("git", ["show", `${branch}:${file}`], { cwd: projectPath, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; }
     },
     /** Returns null when the project is not a git repository (the agent then works in place). */
     prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {

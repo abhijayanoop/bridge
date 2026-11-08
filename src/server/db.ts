@@ -27,6 +27,11 @@ export interface Approval {
   /** True when Bridge added the network rule for this domain, so only Bridge removes it. */
   ownsRule: boolean;
 }
+/** A pull request Bridge opened for a ticket. Kept after the agent is deleted. */
+export interface Pull {
+  id: string; agentId: string; projectId: string; ticketKey: string; title: string; branch: string;
+  url: string; number: number; state: "open" | "merged" | "closed"; createdAt: number;
+}
 export interface StoredEvent { id: number; agentId: string; event: AgentEvent }
 
 export function openStore(dataDir: string) {
@@ -41,6 +46,7 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS pulls (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
@@ -126,6 +132,14 @@ export function openStore(dataDir: string) {
     },
     updateApproval(a: Approval) {
       db.prepare("UPDATE approvals SET json = ? WHERE id = ?").run(JSON.stringify(a), a.id);
+    },
+    addPull(p: Pull) {
+      db.prepare("INSERT INTO pulls (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM pulls))").run(p.id, JSON.stringify(p));
+    },
+    /** Newest first. */
+    pulls(): Pull[] {
+      const rows = db.prepare("SELECT json FROM pulls ORDER BY seq DESC").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as Pull);
     },
     close() { db.close(); },
   };
