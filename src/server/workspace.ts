@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 export type Mode = "local" | "sandbox";
 export interface SkillSource { name: string; dir: string }
@@ -63,6 +63,23 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
       if (!/^[\w-]+$/.test(agentId)) return;
       rmSync(join(opts.clonesDir, agentId), { recursive: true, force: true });
     },
+    /**
+     * Fetches an agent's branch from its clone into the user's repo as a local branch of the same name, so
+     * the work is reviewable (`git log <branch>`) and survives deleting the agent. Never touches the working
+     * tree; a branch that already diverged is left alone. Returns the branch, or null if there was nothing to fetch.
+     */
+    publish(agentId: string, projectPath: string, branch?: string): string | null {
+      if (!/^[\w-]+$/.test(agentId)) return null;
+      const clone = join(opts.clonesDir, agentId);
+      if (!isGitRepo(clone) || !isGitRepo(projectPath)) return null;
+      try {
+        const name = branch ?? git(clone, "rev-parse", "--abbrev-ref", "HEAD");
+        if (!name || name === "HEAD") return null;
+        git(clone, "rev-parse", "--verify", "--quiet", `refs/heads/${name}`);
+        git(projectPath, "fetch", "--quiet", clone, `refs/heads/${name}:refs/heads/${name}`);
+        return name;
+      } catch { return null; }
+    },
     /** Returns null when the project is not a git repository (the agent then works in place). */
     prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {
       if (!isGitRepo(input.projectPath)) return null;
@@ -82,6 +99,15 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
         throw err;
       }
       appendFileSync(join(dest, ".git", "info", "exclude"), "\n.env\n.claude/\n");
+      // A ticket that is not committed yet is missing from the clone; copy it so the agent can read it.
+      const ticketRel = input.ticketFile.replace(/\\/g, "/");
+      if (!existsSync(join(dest, ticketRel)) && existsSync(join(input.projectPath, ticketRel))) {
+        try {
+          mkdirSync(dirname(join(dest, ticketRel)), { recursive: true });
+          cpSync(join(input.projectPath, ticketRel), join(dest, ticketRel));
+          appendFileSync(join(dest, ".git", "info", "exclude"), `${ticketRel}\n`);
+        } catch { /* agent falls back to the Bridge ticket tool */ }
+      }
       const env: Record<string, string> = {};
       for (const key of templateKeys(dest)) env[key] = `throwaway-${randomBytes(9).toString("hex")}`;
       if (Object.keys(env).length) writeFileSync(join(dest, ".env"), Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n");

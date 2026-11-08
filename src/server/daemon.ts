@@ -63,6 +63,26 @@ export async function startDaemon(opts: DaemonOptions) {
   let port = 0;
   const agentHost = opts.agentHost ?? "127.0.0.1";
 
+  /** Branch each agent was started on, and the agents already told where their branch went. */
+  const agentBranch = new Map<string, string>();
+  const announced = new Set<string>();
+  /**
+   * Makes an agent's branch available in the user's own repo (a fetch from its clone), at idle, done, stop and
+   * delete. Tells the agent's terminal once where to find it.
+   */
+  const publishBranch = (agentId: string) => {
+    const a = store.agent(agentId);
+    const project = a && store.projects().find((p) => p.id === a.projectId);
+    if (!a || !project) return;
+    const branch = workspaces.publish(agentId, project.path, agentBranch.get(agentId));
+    if (!branch || announced.has(agentId)) return;
+    announced.add(agentId);
+    const event: AgentEvent = { type: "output", data: `
+[Bridge] Branch ${branch} is now in your repo. Review it with: git log ${branch}
+` };
+    broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
+  };
+
   const watchers = new Map<string, () => void>();
   /** Pushes a "tickets" message when files under the repo's .scratch change. */
   const watchProject = (p: Project) => {
@@ -157,6 +177,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const cwd = workspace?.path ?? project.path;
       const task = ticket ? `Work on ticket ${ticket.key}: ${ticket.title}. Read the ticket file ${ticket.file} first.` : undefined;
       store.addAgent(agent);
+      if (workspace) agentBranch.set(agent.id, workspace.branch);
       const token = randomUUID();
       hookTokens.set(agent.id, token);
       const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
@@ -166,7 +187,7 @@ export async function startDaemon(opts: DaemonOptions) {
       try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
       opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
         const eventId = store.addEvent(agent.id, event);
-        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); }
+        if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done" || event.status === "idle") publishBranch(agent.id); }
         broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
       });
       return send(res, 201, { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } });
@@ -196,6 +217,8 @@ export async function startDaemon(opts: DaemonOptions) {
       const a = store.agent(dm[1]!);
       if (!a) return send(res, 404, { error: "unknown agent" });
       opts.runner.stop(a.id);
+      publishBranch(a.id);
+      agentBranch.delete(a.id); announced.delete(a.id);
       hookTokens.delete(a.id);
       store.deleteAgent(a.id);
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }
@@ -228,6 +251,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const agent = store.agent(prev.id);
       broadcast({ type: "agent", agent });
       broadcast({ type: "agent-event", agentId: prev.id, eventId, event: ev });
+      if (status === "done" || status === "idle") publishBranch(prev.id);
       return send(res, 200, agent);
     }
     const m = path.match(/^\/api\/agents\/([^/]+)\/(events|stop)$/);
@@ -242,6 +266,7 @@ export async function startDaemon(opts: DaemonOptions) {
           store.setStatus(a.id, "done");
           broadcast({ type: "agent-event", agentId: a.id, eventId: store.addEvent(a.id, ev), event: ev });
         }
+        publishBranch(a.id);
         return send(res, 200, { ok: true });
       }
     }
