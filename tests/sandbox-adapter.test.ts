@@ -135,6 +135,27 @@ describe("Docker Sandboxes adapter", () => {
     expect(sandboxPath("/home/a/x.json")).toBe("/home/a/x.json");
   });
 
+  it("sandbox hooks need no Node: an sh script posts raw hook input and the daemon reports status and refuses merges", async () => {
+    const t = await boot(false);
+    const r = await t.post("/api/agents", { projectId: t.project.id, name: "A", ticket: "f/01" });
+    const dir = join(r.json.workspace.path, ".claude");
+    const settings = JSON.parse(readFileSync(join(dir, "settings.local.json"), "utf8"));
+    const commands: string[] = Object.values<any[]>(settings.hooks).flatMap((groups) => groups.flatMap((g) => g.hooks.map((h: any) => h.command as string)));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const c of commands) expect(c).toMatch(/^sh "\$CLAUDE_PROJECT_DIR\/\.claude\/bridge-hook\.sh" /);
+    const script = readFileSync(join(dir, "bridge-hook.sh"), "utf8");
+    expect(script).toContain(`http://host.docker.internal:${new URL(t.daemon.url).port}/api/agents/${r.json.id}/hook`);
+    const token = script.match(/x-bridge-token: ([0-9a-f-]+)/)![1]!;
+    const hook = (query: string, input: unknown) => fetch(`${t.daemon.url}/api/agents/${r.json.id}/hook?${query}`, { method: "POST", headers: { "x-bridge-token": token }, body: JSON.stringify(input) });
+    const ok = await hook("status=waiting&activity=", { tool_name: "Bash", tool_input: { command: "ls" } });
+    expect(ok.status).toBe(200);
+    expect(((await (await fetch(t.daemon.url + "/api/agents")).json()) as any[])[0].status).toBe("waiting");
+    const refused = await hook("status=working&activity=", { tool_name: "Bash", tool_input: { command: "git merge main" } });
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toMatch(/never merge/);
+    expect(((await (await fetch(t.daemon.url + "/api/agents")).json()) as any[])[0].status).toBe("waiting");
+  });
+
   it("finds sbx on PATH, else in the per-user winget directory, else the bare name", () => {
     const exe = process.platform === "win32" ? "sbx.exe" : "sbx";
     const local = join(tmpdir(), "LocalAppData");

@@ -9,7 +9,7 @@ import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../sha
 import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
 import { handleAgentTools } from "./agent-tools.ts";
 import { createInbox } from "./inbox.ts";
-import { SCOPES, createApprovals, type NetworkRules } from "./approvals.ts";
+import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./approvals.ts";
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets } from "./tickets.ts";
 
@@ -160,7 +160,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const token = randomUUID();
       hookTokens.set(agent.id, token);
       const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
-      try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token); } catch { /* workspace not writable: status falls back to runner events */ }
+      try { if (existsSync(cwd)) writeHookConfig(cwd, hook.url, token, mode === "sandbox" ? "sh" : "node"); } catch { /* workspace not writable: status falls back to runner events */ }
       broadcast({ type: "agent", agent: store.agent(agent.id) });
       let mcpConfig: string | undefined;
       try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
@@ -206,7 +206,16 @@ export async function startDaemon(opts: DaemonOptions) {
     if (hm && method === "POST") {
       const expected = hookTokens.get(hm[1]!);
       if (!expected || req.headers["x-bridge-token"] !== expected) return send(res, 401, { error: "invalid token" });
-      const { status, activity, tool, command } = await readJson(req);
+      const body = await readJson(req);
+      // Sandbox hooks (no Node there) post Claude's raw hook input with status and activity in the query string.
+      const q = new URL(req.url ?? "/", "http://x").searchParams;
+      const status = q.get("status") ?? body.status;
+      const activity = q.get("activity") || body.activity;
+      const tool = body.tool ?? body.tool_name;
+      const command = body.command ?? body.tool_input?.command;
+      if (tool === "Bash" && typeof command === "string" && isMergeCommand(command)) {
+        return send(res, 403, { error: "Bridge refused this command: agents may never merge. Push your branch and open a pull request; the user merges." });
+      }
       if (!(HOOK_STATUSES as readonly string[]).includes(status)) return send(res, 400, { error: "unknown status" });
       const act = (ACTIVITIES as readonly string[]).includes(activity) ? activity : activityForTool(tool, command);
       const ev: AgentEvent = { type: "status", status };

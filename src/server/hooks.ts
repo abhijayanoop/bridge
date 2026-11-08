@@ -27,18 +27,32 @@ setTimeout(send, 1500);
 `;
 
 const MARK = "bridge-hook.mjs";
-const cmd = (status: string, activity?: string) =>
-  `node "$CLAUDE_PROJECT_DIR/.claude/${MARK}" ${status}${activity ? ` ${activity}` : ""}`;
+const SH_MARK = "bridge-hook.sh";
+
+/**
+ * Hook script for sandboxes, whose image has no Node: plain sh and curl. It posts Claude's raw hook input
+ * to the daemon, which makes the same decisions (status, merge refusal) and answers 403 to refuse.
+ */
+const SH_SCRIPT = (url: string, token: string) => `#!/bin/sh
+# Written by Bridge. Usage: sh bridge-hook.sh <status> [activity]
+resp=$(cat | curl -s -m 2 -w '\n%{http_code}' -X POST -H 'content-type: application/json' -H 'x-bridge-token: ${token}' --data-binary @- "${url}?status=$1&activity=$2") || exit 0
+code=$(printf '%s' "$resp" | tail -n 1)
+if [ "$code" = 403 ]; then printf '%s\n' "$resp" | sed '$d' >&2; exit 2; fi
+exit 0
+`;
+
+const cmd = (runner: "node" | "sh", status: string, activity?: string) =>
+  `${runner} "$CLAUDE_PROJECT_DIR/.claude/${runner === "node" ? MARK : SH_MARK}" ${status}${activity ? ` ${activity}` : ""}`;
 
 /** Hook events Claude Code fires, and the Bridge status each one reports. */
-const EVENTS: Record<string, string> = {
-  UserPromptSubmit: cmd("working"),
-  PreToolUse: cmd("working"),
-  PostToolUseFailure: cmd("working", "debugging"),
-  Notification: cmd("waiting"),
-  Stop: cmd("idle"),
-  SessionEnd: cmd("done"),
-};
+const events = (runner: "node" | "sh"): Record<string, string> => ({
+  UserPromptSubmit: cmd(runner, "working"),
+  PreToolUse: cmd(runner, "working"),
+  PostToolUseFailure: cmd(runner, "working", "debugging"),
+  Notification: cmd(runner, "waiting"),
+  Stop: cmd(runner, "idle"),
+  SessionEnd: cmd(runner, "done"),
+});
 
 /**
  * Writes this agent's MCP config to `.claude/bridge-mcp-<agentId>.json` (pass it to the CLI with
@@ -67,17 +81,18 @@ export function writeMcpConfig(cwd: string, agentId: string, url: string, token:
  * Writes the hook script and Claude Code hook config into an agent's workspace
  * (`.claude/settings.local.json`, merged with anything already there).
  */
-export function writeHookConfig(cwd: string, url: string, token: string): void {
+export function writeHookConfig(cwd: string, url: string, token: string, runner: "node" | "sh" = "node"): void {
   const dir = join(cwd, ".claude");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, MARK), SCRIPT(url, token));
+  if (runner === "node") writeFileSync(join(dir, MARK), SCRIPT(url, token));
+  else writeFileSync(join(dir, SH_MARK), SH_SCRIPT(url, token));
   const file = join(dir, "settings.local.json");
   let settings: any = {};
   try { settings = JSON.parse(readFileSync(file, "utf8")); } catch { /* new file */ }
   settings.hooks ??= {};
-  for (const [event, command] of Object.entries(EVENTS)) {
+  for (const [event, command] of Object.entries(events(runner))) {
     const groups: any[] = (settings.hooks[event] ??= []);
-    const kept = groups.filter((g) => !JSON.stringify(g).includes(MARK));
+    const kept = groups.filter((g) => !JSON.stringify(g).includes("bridge-hook."));
     kept.push({ matcher: "", hooks: [{ type: "command", command }] });
     settings.hooks[event] = kept;
   }
