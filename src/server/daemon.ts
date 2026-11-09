@@ -8,7 +8,7 @@ import { DEFAULT_WORKSPACE, openStore, type AgentRow, type Project } from "./db.
 import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../shared/avatar.ts";
 import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
 import { handleAgentTools } from "./agent-tools.ts";
-import { createInbox } from "./inbox.ts";
+import { createInbox, type Answer } from "./inbox.ts";
 import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./approvals.ts";
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
@@ -52,6 +52,14 @@ export interface DaemonOptions {
   reviewer?: Reviewer;
   /** How often open pull requests are checked on GitHub, in ms. Default 30 seconds; 0 turns polling off. */
   pullPollMs?: number;
+  /** Called after the UI confirmed quitting (POST /api/quit). Omitted means the request only answers; the process keeps running. */
+  onQuit?: () => void;
+}
+
+/** What closing the daemon did to the agents that were still running. */
+export interface ExitReport {
+  stopped: { id: string; name: string; ticketKey: string | null }[];
+  failed: { id: string; name: string; ticketKey: string | null; error: string }[];
 }
 
 const MIME: Record<string, string> = {
@@ -99,6 +107,19 @@ export async function startDaemon(opts: DaemonOptions) {
   const hookTokens = new Map<string, string>();
   let port = 0;
   const agentHost = opts.agentHost ?? "127.0.0.1";
+  /** Set while the daemon shuts down: agents dying then are interrupted, not finished. */
+  let closing = false;
+  /** Stops an agent's process. Returns why it could not, rather than throwing. */
+  const stopRunner = (id: string): string | null => {
+    try { opts.runner.stop(id); return null; } catch (e) { return (e as Error).message || "unknown error"; }
+  };
+  /** Agents whose process should be alive: started and not finished. */
+  const liveAgents = () => store.agents().filter((a) => a.status !== "done");
+  const brief = (a: AgentRow) => ({ id: a.id, name: a.name, ticketKey: a.ticketKey ?? null });
+  const quitWarning = () => {
+    const n = liveAgents().length;
+    return n === 0 ? null : `${n} agent${n === 1 ? " is" : "s are"} still running. Quitting stops ${n === 1 ? "it" : "them"}; unfinished tickets resume the next time Bridge starts.`;
+  };
 
   /** Branch each agent was started on, and the agents already told where their branch went. */
   const agentBranch = new Map<string, string>();
@@ -213,6 +234,7 @@ export async function startDaemon(opts: DaemonOptions) {
   };
   const running = () => store.agents().filter((a) => a.ticketId && !a.lead && (a.status !== "done" || reviewStage.busy(a.id))).length;
   const queue: Queued[] = [];
+  try { queue.push(...(JSON.parse(store.setting("queue") ?? "[]") as Queued[])); } catch { /* unreadable: start with an empty queue */ }
   /** Set when an agent reports the plan's usage limit; the queue stays paused until the user resumes it. */
   let rateLimit: { since: number; agentId: string } | null = null;
   /** A ticket of a feature whose spec or ticket breakdown the user has not approved yet is never started. */
@@ -226,7 +248,11 @@ export async function startDaemon(opts: DaemonOptions) {
     rateLimited: rateLimit,
     queued: queue.map((q) => { const { project, ticket } = ticketOf(q); return { ...q, blocked: (ticket?.blocked ?? false) || (!!project && !!ticket && !!held(project.id, ticket)) }; }),
   });
-  const limitsChanged = () => broadcast({ type: "limits", limits: limitsView() });
+  const limitsChanged = () => {
+    // Every queue change passes here, so the queue is saved for the next launch.
+    if (!closing) store.setSetting("queue", JSON.stringify(queue));
+    broadcast({ type: "limits", limits: limitsView() });
+  };
   /** Starts queued tickets, oldest first, while there is a free slot, no rate limit and no unmet blocker. */
   function drain() {
     for (let i = 0; i < queue.length && !rateLimit && running() < cap();) {
@@ -259,7 +285,16 @@ export async function startDaemon(opts: DaemonOptions) {
       agentBranch.set(agent.id, workspace.branch);
       agentCwd.set(agent.id, workspace.path);
       if (workspace.base) agentBase.set(agent.id, workspace.base);
+      // Kept so the next launch finds this clone again.
+      store.setSetting(`agentRun:${agent.id}`, JSON.stringify({ cwd: workspace.path, branch: workspace.branch, base: workspace.base }));
     }
+    launch(agent, cwd, task, workspace?.env, !!workspace);
+    return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
+  };
+
+  /** Writes the agent's hook and tool config and starts its process. Used for new agents and for resumed ones. */
+  function launch(agent: AgentRow, cwd: string, task: string | undefined, env: Record<string, string> | undefined, isolated: boolean) {
+    const { name, projectId } = agent;
     const token = randomUUID();
     hookTokens.set(agent.id, token);
     const hook = { url: `http://${agentHost}:${port}/api/agents/${agent.id}/hook`, token };
@@ -267,14 +302,14 @@ export async function startDaemon(opts: DaemonOptions) {
     broadcast({ type: "agent", agent: store.agent(agent.id) });
     let mcpConfig: string | undefined;
     try { if (existsSync(cwd)) mcpConfig = writeMcpConfig(cwd, agent.id, `http://${agentHost}:${port}/mcp/${agent.id}`, token); } catch { /* workspace not writable */ }
-    opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !workspace, env: workspace?.env },(event: AgentEvent) => {
+    opts.runner.start({ id: agent.id, name, projectId, cwd, task, hook, mcpConfig, mode, permissionPrompts: mode === "local" || !isolated, env },(event: AgentEvent) => {
+      if (closing) return; // the process dying because Bridge is closing is not the agent finishing
       const eventId = store.addEvent(agent.id, event);
       if (event.type === "output" && !rateLimit && RATE_LIMIT_TEXT.test(event.data)) { rateLimit = { since: Date.now(), agentId: agent.id }; limitsChanged(); }
       if (event.type === "status") { store.setStatus(agent.id, event.status); broadcast({ type: "agent", agent: store.agent(agent.id) }); if (event.status === "done") onDone(agent.id); else if (event.status === "idle") publishBranch(agent.id); }
       broadcast({ type: "agent-event", agentId: agent.id, eventId, event });
     });
-    return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
-  };
+  }
 
   /** What the Plan screen shows: the feature, its spec text, its tickets with dependencies and looks, and the three gates. */
   function featureView(project: Project, f: Feature) {
@@ -317,22 +352,36 @@ export async function startDaemon(opts: DaemonOptions) {
       featureChanged(features.update({ ...fresh(), stage, gateItemId: item.id }));
       return answer;
     };
+    const specVerdict = (a: Answer) => {
+      if (a.decision === "approve") return `Approved: the spec. Now slice it into tickets under .scratch/${fresh().slug}/issues and call submit_tickets.`;
+      if (a.decision === "deny") return `Denied: the spec${a.reply ? `. Reason: ${a.reply}` : ""}. Revise it and call submit_spec again.`;
+      return `The user replied: ${a.reply ?? ""}. Revise the spec and call submit_spec again.`;
+    };
+    const ticketsVerdict = (a: Answer) => {
+      if (a.decision === "approve") return "Approved: the tickets. Bridge now starts workers for them; you are done.";
+      if (a.decision === "deny") return `Denied: the tickets${a.reply ? `. Reason: ${a.reply}` : ""}. Revise them and call submit_tickets again.`;
+      return `The user replied: ${a.reply ?? ""}. Revise the tickets and call submit_tickets again.`;
+    };
+    /** The gate's Inbox item is still open (a restart lost the first call): wait on it again. Otherwise just say it is waiting. */
+    const waitingGate = async (f: Feature, verdict: (a: Answer) => string, fallback: string) => {
+      const open = f.gateItemId ? store.inboxItem(f.gateItemId) : undefined;
+      if (!open || open.status !== "open") return fallback;
+      return verdict(await inbox.reattach(open.id));
+    };
     const ticketsOf = (f: Feature) => readTickets(project.path, project.id).filter((t) => t.feature === f.slug);
     return {
       async submitSpec(summary: string) {
         const f = fresh();
-        if (f.stage === "spec-gate") return "The spec is already waiting for the user's approval.";
+        if (f.stage === "spec-gate") return waitingGate(f, specVerdict, "The spec is already waiting for the user's approval.");
         if (f.stage !== "grill") return "The spec is already approved. Slice it into tickets and call submit_tickets.";
         const text = features.specText(project.path, f);
         if (!text?.trim()) return `Write the spec to .scratch/${f.slug}/spec.md first, then call submit_spec.`;
         const a = await gate("spec-gate", `Approve the spec: ${f.description}`, summary, [{ k: "Feature", v: f.description }, { k: "Spec", v: `.scratch/${f.slug}/spec.md` }]);
-        if (a.decision === "approve") return `Approved: the spec. Now slice it into tickets under .scratch/${f.slug}/issues and call submit_tickets.`;
-        if (a.decision === "deny") return `Denied: the spec${a.reply ? `. Reason: ${a.reply}` : ""}. Revise it and call submit_spec again.`;
-        return `The user replied: ${a.reply ?? ""}. Revise the spec and call submit_spec again.`;
+        return specVerdict(a);
       },
       async submitTickets(input: { workers?: number; agents?: { ticket: string; shape: string; color: string }[] }) {
         const f = fresh();
-        if (f.stage === "tickets-gate") return "The tickets are already waiting for the user's approval.";
+        if (f.stage === "tickets-gate") return waitingGate(f, ticketsVerdict, "The tickets are already waiting for the user's approval.");
         if (f.stage === "build") return "The tickets are already approved and workers are building them.";
         if (f.stage !== "tickets") return "The spec must be approved before you submit tickets. Call submit_spec first.";
         const mine = ticketsOf(f);
@@ -350,9 +399,7 @@ export async function startDaemon(opts: DaemonOptions) {
         const a = await gate("tickets-gate", `Approve ${mine.length} ticket${mine.length === 1 ? "" : "s"}: ${f.description}`,
           input.workers ? `The lead suggests ${input.workers} worker${input.workers === 1 ? "" : "s"}.` : "",
           [{ k: "Tickets", v: list }, ...(input.workers ? [{ k: "Suggested workers", v: String(input.workers) }] : [])]);
-        if (a.decision === "approve") return "Approved: the tickets. Bridge now starts workers for them; you are done.";
-        if (a.decision === "deny") return `Denied: the tickets${a.reply ? `. Reason: ${a.reply}` : ""}. Revise them and call submit_tickets again.`;
-        return `The user replied: ${a.reply ?? ""}. Revise the tickets and call submit_tickets again.`;
+        return ticketsVerdict(a);
       },
     };
   }
@@ -370,6 +417,17 @@ export async function startDaemon(opts: DaemonOptions) {
       const r = await pulls.merge(pullMerge[1]!);
       if (r.code === 200) drain();
       return send(res, r.code, r.body);
+    }
+    if (path === "/api/quit-check") return send(res, 200, { running: liveAgents().map((a) => ({ ...brief(a), status: a.status })), warning: quitWarning() });
+    if (path === "/api/restart") return send(res, 200, restartReport);
+    if (path === "/api/quit" && method === "POST") {
+      if (req.headers["x-bridge-ui"] !== "1") return send(res, 403, { error: "quitting is done from the Bridge UI" });
+      const { confirmed } = await readJson(req);
+      const warning = quitWarning();
+      if (warning && confirmed !== true) return send(res, 409, { error: "agents are still running", warning, running: liveAgents().map(brief) });
+      send(res, 200, { ok: true, stopping: liveAgents().length });
+      setTimeout(() => opts.onQuit?.(), 50);
+      return;
     }
     if (path === "/api/limits" && method === "GET") return send(res, 200, limitsView());
     if (path === "/api/limits" && method === "POST") {
@@ -547,10 +605,11 @@ export async function startDaemon(opts: DaemonOptions) {
       const a = store.agent(dm[1]!);
       if (!a) return send(res, 404, { error: "unknown agent" });
       pulls.userStopped(a.id);
-      opts.runner.stop(a.id);
+      stopRunner(a.id);
       publishBranch(a.id);
       pulls.forget(a.id);
       agentBranch.delete(a.id); announced.delete(a.id); agentCwd.delete(a.id); agentBase.delete(a.id);
+      store.deleteSetting(`agentRun:${a.id}`);
       hookTokens.delete(a.id);
       store.deleteAgent(a.id);
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }
@@ -594,7 +653,11 @@ export async function startDaemon(opts: DaemonOptions) {
         const a = store.agents().find((x) => x.id === m[1]);
         if (!a) return send(res, 404, { error: "unknown agent" });
         pulls.userStopped(a.id);
-        opts.runner.stop(a.id);
+        const stopError = stopRunner(a.id);
+        if (stopError) {
+          const event: AgentEvent = { type: "output", data: `\r\n[Bridge] Could not end this agent's process: ${stopError}\r\n` };
+          broadcast({ type: "agent-event", agentId: a.id, eventId: store.addEvent(a.id, event), event });
+        }
         if (a.status !== "done") {
           const ev: AgentEvent = { type: "status", status: "done" };
           store.setStatus(a.id, "done");
@@ -681,10 +744,90 @@ export async function startDaemon(opts: DaemonOptions) {
   const addr = server.address();
   port = typeof addr === "object" && addr ? addr.port : 0;
 
+  // Resume what the last launch left unfinished.
+  const previousExit = (() => { try { return JSON.parse(store.setting("lastExit") ?? "null") as (ExitReport & { at: number }) | null; } catch { return null; } })();
+  store.deleteSetting("lastExit");
+  const say = (agentId: string, text: string) => {
+    const event: AgentEvent = { type: "output", data: `\r\n[Bridge] ${text}\r\n` };
+    broadcast({ type: "agent-event", agentId, eventId: store.addEvent(agentId, event), event });
+  };
+  const RESUME_NOTE = "Bridge was restarted and interrupted you. Continue where you left off: check git status and git log in this folder, and the acceptance boxes in your ticket, before doing anything.";
+  const finishInterrupted = (a: AgentRow, why: string) => {
+    store.setStatus(a.id, "done");
+    say(a.id, `Not resumed: ${why}.`);
+    broadcast({ type: "agent", agent: store.agent(a.id) });
+  };
+  const resumed: ReturnType<typeof brief>[] = [];
+  for (const a of liveAgents()) {
+    const project = store.projects().find((p) => p.id === a.projectId);
+    if (!project) { finishInterrupted(a, "its project is no longer registered"); continue; }
+    let cwd = project.path;
+    let task: string | undefined;
+    let env: Record<string, string> | undefined;
+    let isolated = false;
+    if (a.lead) {
+      const f = store.features().find((x) => x.leadAgentId === a.id);
+      if (!f || f.stage === "build") { finishInterrupted(a, "its planning is finished"); continue; }
+      // A gate's Inbox item survives the restart; calling submit_spec or submit_tickets again waits on that same item.
+      task = `${leadTask(f)} ${RESUME_NOTE} If you had already called submit_spec or submit_tickets, call it again: it waits for the same pending approval.`;
+    } else if (a.ticketId) {
+      const ticket = readTickets(project.path, project.id).find((t) => t.id === a.ticketId);
+      if (!ticket) { finishInterrupted(a, "its ticket file is gone"); continue; }
+      let saved: { cwd: string; branch: string; base?: string } | null = null;
+      try { saved = JSON.parse(store.setting(`agentRun:${a.id}`) ?? "null"); } catch { /* fall through to a fresh clone */ }
+      if (!saved || !existsSync(saved.cwd)) {
+        try {
+          const ws = workspaces.prepare({ agentId: a.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key });
+          saved = ws ? { cwd: ws.path, branch: ws.branch, base: ws.base } : null;
+          if (ws) store.setSetting(`agentRun:${a.id}`, JSON.stringify(saved));
+        } catch (e) { finishInterrupted(a, `its clone could not be recreated (${(e as Error).message})`); continue; }
+      }
+      if (saved) {
+        cwd = saved.cwd; isolated = true;
+        agentBranch.set(a.id, saved.branch); agentCwd.set(a.id, saved.cwd);
+        if (saved.base) agentBase.set(a.id, saved.base);
+        env = workspaces.readEnv(saved.cwd);
+      }
+      task = `${taskFor(ticket)} ${RESUME_NOTE}`;
+    }
+    // Questions asked before the restart can no longer be answered to the old process; the agent asks again.
+    for (const item of inbox.list().filter((i) => i.agentId === a.id && i.status === "open" && i.kind !== "plan")) {
+      inbox.resolve(item.id, { decision: "deny", reply: "Bridge restarted before this was answered. Ask again if you still need it." });
+    }
+    store.setStatus(a.id, "working");
+    broadcast({ type: "agent", agent: store.agent(a.id) });
+    say(a.id, "Resumed after Bridge restarted.");
+    const failedStop = previousExit?.failed.find((f) => f.id === a.id);
+    if (failedStop) say(a.id, `This agent could not be stopped when Bridge last closed (${failedStop.error}). A leftover process may still be running; check Task Manager.`);
+    launch(store.agent(a.id)!, cwd, task, env, isolated);
+    resumed.push(brief(a));
+  }
+  const restartReport = {
+    resumed,
+    previousExit: previousExit ? { at: previousExit.at, stopped: previousExit.stopped, failed: previousExit.failed } : null,
+    notice: previousExit?.failed.length
+      ? `${previousExit.failed.length} agent${previousExit.failed.length === 1 ? "" : "s"} could not be stopped when Bridge last closed: ${previousExit.failed.map((f) => `${f.name}${f.ticketKey ? ` (ticket ${f.ticketKey})` : ""}: ${f.error}`).join("; ")}. Leftover processes may still be running.`
+      : null,
+  };
+  for (const p of store.projects()) watchProject(p);
+  drain();
+
   return {
     port,
     url: `http://127.0.0.1:${port}`,
-    async close() {
+    /** What the last close() did to running agents; null before it is called. */
+    exit: null as ExitReport | null,
+    async close(): Promise<void> {
+      // Agents die with the daemon. Stop each one, record the outcome, and keep them unfinished so they resume next launch.
+      if (closing) return;
+      closing = true;
+      const report: ExitReport = { stopped: [], failed: [] };
+      this.exit = report;
+      for (const a of liveAgents()) {
+        const error = stopRunner(a.id);
+        if (error) report.failed.push({ ...brief(a), error }); else report.stopped.push(brief(a));
+      }
+      store.setSetting("lastExit", JSON.stringify({ at: Date.now(), ...report }));
       clearInterval(pollTimer);
       for (const stop of watchers.values()) stop();
       for (const s of sockets) s.terminate();

@@ -30,6 +30,7 @@ export interface AgentSpec {
 /** Starts and stops agents and reports what they do. */
 export interface AgentRunner {
   start(spec: AgentSpec, emit: (event: AgentEvent) => void): void;
+  /** Ends the agent and everything it started. Throws if a process could not be ended, so Bridge can report it. */
   stop(agentId: string): void;
   /** Sends typed input (keystrokes) to a running agent. Ignored if it is not running. */
   write(agentId: string, data: string): void;

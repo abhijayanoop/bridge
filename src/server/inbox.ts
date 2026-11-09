@@ -34,6 +34,10 @@ export function createInbox(store: Persistence, onChange: (item: InboxItem, open
       onChange(item, open());
       return { item, answer };
     },
+    /** Waits for the answer to an item that is already open, e.g. after a restart lost the first waiter. */
+    reattach(id: string): Promise<Answer> {
+      return new Promise<Answer>((resolve) => waiting.set(id, resolve));
+    },
     /** Records the user's answer and wakes the waiting agent. Null if unknown or already resolved. */
     resolve(id: string, answer: Answer): InboxItem | null {
       const item = store.inboxItem(id);

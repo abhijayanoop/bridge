@@ -104,6 +104,9 @@ export function openStore(dataDir: string) {
     setSetting(key: string, value: string) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
     },
+    deleteSetting(key: string) {
+      db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+    },
     addAgent(a: AgentRow) {
       db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.activity ?? null);

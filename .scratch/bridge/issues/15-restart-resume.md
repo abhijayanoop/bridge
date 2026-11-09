@@ -8,6 +8,6 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Quitting with running agents shows a warning
-- [ ] State survives a restart and unfinished tickets resume, covered through the API seam
-- [ ] Windows agent termination on exit is handled and reported clearly
+- [x] Quitting with running agents shows a warning
+- [x] State survives a restart and unfinished tickets resume, covered through the API seam
+- [x] Windows agent termination on exit is handled and reported clearly

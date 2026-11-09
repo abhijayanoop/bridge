@@ -79,6 +79,39 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, onAdd, lead, 
 
 interface Limits { cap: number; max: number; running: number; rateLimited: { since: number; agentId: string } | null; queued: { id: string; ticketKey: string; blocked: boolean; error?: string }[] }
 
+/** Asks the daemon whether agents are running, warns, and quits only when the user agrees. */
+function QuitButton() {
+  const [state, setState] = useState<"idle" | "confirm" | "stopped">("idle");
+  const [warning, setWarning] = useState("");
+  const ui = { "x-bridge-ui": "1" };
+  const ask = async () => {
+    const r = await fetch("/api/quit-check").then((x) => x.json()).catch(() => ({ warning: null }));
+    if (r.warning) { setWarning(r.warning); setState("confirm"); } else void quit(false);
+  };
+  const quit = async (confirmed: boolean) => {
+    const r = await fetch("/api/quit", { method: "POST", headers: ui, body: JSON.stringify({ confirmed }) }).catch(() => undefined);
+    if (r?.ok) setState("stopped");
+  };
+  if (state === "stopped") return <div role="alert" className="fixed inset-0 z-50 grid place-items-center bg-bg text-fg-2">Bridge has stopped. Run bridge again to continue.</div>;
+  return (
+    <>
+      <button type="button" onClick={ask} className="inline-flex h-8 items-center rounded-lg border border-line px-2.5 text-fg-2 hover:bg-surface">Quit</button>
+      {state === "confirm" && (
+        <div role="alertdialog" aria-label="Quit Bridge" className="fixed inset-0 z-40 grid place-items-center bg-black/60">
+          <div className="flex max-w-sm flex-col gap-3 rounded-xl border border-line bg-surface p-4">
+            <p className="text-[13px] font-semibold">Quit Bridge?</p>
+            <p className="text-fg-2">{warning}</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setState("idle")} className="rounded-md border border-line px-3 py-1 hover:bg-surface-2">Keep running</button>
+              <button type="button" onClick={() => quit(true)} className="rounded-md border border-[#b45309] px-3 py-1 text-[#fbbf24] hover:bg-surface-2">Stop agents and quit</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: number; project?: Project; section: string; limits: Limits; onCap: (cap: number) => void; onResume: () => void }) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line bg-bg px-5 py-2 text-[13px]">
@@ -109,6 +142,7 @@ function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: n
         </select>
         <span className="text-fg-3">workers</span>
       </span>
+      <QuitButton />
     </header>
   );
 }

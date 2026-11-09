@@ -127,6 +127,17 @@ export function createWorkspaces(opts: { clonesDir: string; skills?: SkillSource
         return fail(`merging ${branch} failed: ${why || "git merge exited with an error"}`);
       }
     },
+    /** The throwaway values Bridge wrote to a clone's .env, for restarting the agent there. Never reads a user's real .env: clones only. */
+    readEnv(cloneDir: string): Record<string, string> {
+      const out: Record<string, string> = {};
+      try {
+        for (const line of readFileSync(join(cloneDir, ".env"), "utf8").split(/\r?\n/)) {
+          const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(throwaway-[0-9a-f]+)$/);
+          if (m) out[m[1]!] = m[2]!;
+        }
+      } catch { /* no env file */ }
+      return out;
+    },
     /** Returns null when the project is not a git repository (the agent then works in place). */
     prepare(input: { agentId: string; projectPath: string; ticketFile: string; ticketKey: string }): Workspace | null {
       if (!isGitRepo(input.projectPath)) return null;

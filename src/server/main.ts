@@ -23,7 +23,9 @@ const sandbox = fake
   : await resolveSandbox({ local });
 console.log(sandbox.notice);
 
+let quit = () => {};
 const daemon = await startDaemon({
+  onQuit: () => quit(),
   dataDir, port, skills: discoverPocockSkills(), webDir: join(root, "dist", "web"),
   runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice,
   github: fake ? undefined : createGitHubCli(),
@@ -31,6 +33,11 @@ const daemon = await startDaemon({
   agentHost: sandbox.mode === "sandbox" ? "host.docker.internal" : undefined,
 });
 console.log(`Bridge listening on ${daemon.url}`);
-const quit = () => daemon.close().then(() => process.exit(0));
+quit = () => daemon.close().then(() => {
+  const r = daemon.exit!;
+  if (r.stopped.length) console.log(`Stopped ${r.stopped.length} running agent(s); they resume on the next launch.`);
+  for (const f of r.failed) console.error(`Could not stop agent ${f.name}${f.ticketKey ? ` (ticket ${f.ticketKey})` : ""}: ${f.error}. A leftover process may still be running.`);
+  process.exit(r.failed.length ? 1 : 0);
+});
 process.on("SIGINT", quit);
 process.on("SIGTERM", quit);

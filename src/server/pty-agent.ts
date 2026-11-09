@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, extname, join } from "node:path";
 import * as pty from "@lydell/node-pty";
@@ -65,7 +66,20 @@ export function createPtyAgentRunner(opts: PtyRunnerOptions = {}): AgentRunner {
     stop(agentId) {
       const term = sessions.get(agentId);
       if (!term) return;
-      try { term.kill(); } catch { /* already gone */ }
+      // On Windows the CLI runs under cmd/node children; killing only the pty leaves them, so end the whole tree.
+      let treeError = "";
+      if (process.platform === "win32") {
+        const r = spawnSync("taskkill", ["/PID", String(term.pid), "/T", "/F"], { encoding: "utf8", windowsHide: true });
+        if (r.status === 0) return;
+        const said = `${r.stderr ?? ""}${r.stdout ?? ""}`.trim();
+        if (/not found|no running instance/i.test(said)) return; // already gone
+        treeError = said || (r.error?.message ?? `taskkill exited with ${r.status}`);
+      }
+      try { term.kill(); } catch {
+        if (treeError) throw new Error(`could not end the agent's process tree: ${treeError}`);
+        return; // already gone
+      }
+      if (treeError) throw new Error(`the agent's process tree may still be running: ${treeError}`);
     },
     write(agentId, data) {
       sessions.get(agentId)?.write(data);
