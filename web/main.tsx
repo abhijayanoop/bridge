@@ -231,7 +231,7 @@ function App() {
     if (!projectId) { setSetupNeeded(false); return; }
     fetch(`/api/projects/${projectId}/setup`).then((r) => r.json()).then((s) => setSetupNeeded(s.needed === true)).catch(() => {});
   }, [projectId, setupTick]);
-  const switchTo =(id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
+  const switchTo = (id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
   const post = (path: string, body: unknown) => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()).then(setLimits).catch(() => {});
   return (
     <div className="flex h-full">

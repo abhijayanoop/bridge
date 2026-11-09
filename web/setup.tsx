@@ -53,9 +53,9 @@ export function NewProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   useEffect(() => { setPlan(null); }, [name, parent, github, mode]);
 
   const post = (url: string, body: unknown) => fetch(url, { method: "POST", body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, json: await r.json().catch(() => ({})) }));
-  const open = async () => {
+  const open = async (target: string) => {
     setError("");
-    const r = await post("/api/projects/open", { path });
+    const r = await post("/api/projects/open", { path: target });
     if (r.ok) { onOpened(); onClose(); } else setError(r.json.error ?? "Could not open that folder.");
   };
   const review = async () => {
@@ -80,7 +80,7 @@ export function NewProjectDialog({ onClose, onOpened }: { onClose: () => void; o
         {mode === "path" ? (
           <>
             <label className="flex flex-col gap-1">Repo path (use . for where Bridge was started)<input aria-label="Repo path" className={field} value={path} onChange={(e) => setPath(e.target.value)} /></label>
-            <button type="button" className={primary} disabled={!path} onClick={open}>Open</button>
+            <div className="flex gap-2"><button type="button" className={primary} disabled={!path} onClick={() => open(path)}>Open</button><button type="button" className={secondary} onClick={() => open(".")}>Use current folder</button></div>
           </>
         ) : (
           <>
