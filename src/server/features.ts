@@ -6,7 +6,7 @@ import type { Ticket } from "./tickets.ts";
 /**
  * grill: the lead questions the user and writes the spec. spec-gate: waiting for the user to approve it.
  * tickets: spec approved, the lead slices it. tickets-gate: waiting for the user to approve the breakdown.
- * build: both gates approved, workers may run. done: every ticket is done.
+ * build: both gates approved, workers may run.
  */
 export const STAGES = ["grill", "spec-gate", "tickets", "tickets-gate", "build"] as const;
 export type Stage = (typeof STAGES)[number];
