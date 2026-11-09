@@ -605,7 +605,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const a = store.agent(dm[1]!);
       if (!a) return send(res, 404, { error: "unknown agent" });
       pulls.userStopped(a.id);
-      stopRunner(a.id);
+      const stopError = stopRunner(a.id);
       publishBranch(a.id);
       pulls.forget(a.id);
       agentBranch.delete(a.id); announced.delete(a.id); agentCwd.delete(a.id); agentBase.delete(a.id);
@@ -615,7 +615,7 @@ export async function startDaemon(opts: DaemonOptions) {
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }
       broadcast({ type: "agent-deleted", agentId: a.id });
       drain();
-      return send(res, 200, { ok: true });
+      return send(res, 200, stopError ? { ok: true, warning: `Could not end the agent's process: ${stopError}. A leftover process may still be running.` } : { ok: true });
     }
     const hm = path.match(/^\/api\/agents\/([^/]+)\/hook$/);
     if (hm && method === "POST") {
@@ -822,12 +822,12 @@ export async function startDaemon(opts: DaemonOptions) {
       if (closing) return;
       closing = true;
       const report: ExitReport = { stopped: [], failed: [] };
-      this.exit = report;
       for (const a of liveAgents()) {
         const error = stopRunner(a.id);
         if (error) report.failed.push({ ...brief(a), error }); else report.stopped.push(brief(a));
       }
       store.setSetting("lastExit", JSON.stringify({ at: Date.now(), ...report }));
+      this.exit = report;
       clearInterval(pollTimer);
       for (const stop of watchers.values()) stop();
       for (const s of sockets) s.terminate();

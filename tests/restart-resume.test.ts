@@ -40,9 +40,6 @@ async function launch(w: { dataDir: string; repo: string }, o: { stopThrows?: bo
     stop(id) { stops.push(id); if (o.stopThrows) throw new Error("taskkill: Access is denied"); fake.stop(id); },
   };
   const daemon = await startDaemon({ dataDir: w.dataDir, runner, onQuit: o.onQuit });
-  let closed = false;
-  const close = daemon.close.bind(daemon);
-  daemon.close = async () => { if (closed) return; closed = true; await close(); };
   cleanups.push(() => daemon.close());
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
     const r = await fetch(daemon.url + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
