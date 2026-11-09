@@ -13,6 +13,14 @@ export interface AgentToolContext {
   raise(item: Omit<NewInboxItem, "agentId" | "projectId">): Promise<Answer>;
   /** Raises an access request, or approves it at once when an earlier Ticket or Project approval covers it. */
   requestAccess(kind: string, detail: string, item: Omit<NewInboxItem, "agentId" | "projectId">): Promise<Answer>;
+  /** Present only for a lead agent working on a feature: the planning tools. */
+  lead?: LeadTools;
+}
+
+/** The lead's two gate tools. Each returns text for the lead: an error to fix, or the user's verdict. */
+export interface LeadTools {
+  submitSpec(summary: string): Promise<string>;
+  submitTickets(input: { workers?: number; agents?: { ticket: string; shape: string; color: string }[] }): Promise<string>;
 }
 
 const STATUSES = ["idle", "working", "blocked", "waiting", "done"] as const;
@@ -52,6 +60,20 @@ function buildServer(ctx: AgentToolContext): McpServer {
     const a = await ctx.requestAccess(kind, detail, { kind: "access", access: kind, detail, what, why: why ?? "", facts: [{ k: label, v: detail }] });
     return verdict(a, what);
   });
+  const lead = ctx.lead;
+  if (lead) {
+    server.registerTool("submit_spec", {
+      description: "Submit the spec you wrote at .scratch/<feature>/spec.md for the user's approval. Blocks until they approve, deny or reply. If they do not approve, revise the spec and call this again.",
+      inputSchema: { summary: z.string().describe("A few sentences on what the spec says") },
+    }, async ({ summary }) => text(await lead.submitSpec(summary)));
+    server.registerTool("submit_tickets", {
+      description: "Submit the ticket breakdown you wrote under .scratch/<feature>/issues for the user's approval. Say how many workers to run and the shape and colour of each ticket's worker. Blocks until the user decides.",
+      inputSchema: {
+        workers: z.number().int().min(1).max(3).optional().describe("How many workers to run in parallel, 1 to 3"),
+        agents: z.array(z.object({ ticket: z.string().describe("Ticket number, e.g. 01"), shape: z.string(), color: z.string().describe("Hex colour, e.g. #0A84FF") })).optional(),
+      },
+    }, async (input) => text(await lead.submitTickets(input)));
+  }
   return server;
 }
 

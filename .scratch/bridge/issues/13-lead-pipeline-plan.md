@@ -8,7 +8,7 @@
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] The lead runs the grill, spec and tickets stages and pauses for approval after the spec and after the tickets
-- [ ] Nothing is built before the gates are approved, covered by a test
-- [ ] The Plan screen shows spec, ticket dependency view and gate steps
-- [ ] The lead assigns each agent a shape and colour
+- [x] The lead runs the grill, spec and tickets stages and pauses for approval after the spec and after the tickets
+- [x] Nothing is built before the gates are approved, covered by a test
+- [x] The Plan screen shows spec, ticket dependency view and gate steps
+- [x] The lead assigns each agent a shape and colour

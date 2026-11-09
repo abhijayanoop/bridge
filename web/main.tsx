@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { AgentsScreen, type AgentInfo } from "./agents.tsx";
 import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
+import { PlanScreen } from "./plan.tsx";
 import { ReviewScreen, type PullInfo, type ReviewInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
@@ -228,7 +229,7 @@ function App() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : (
+          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

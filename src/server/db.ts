@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AgentEvent, AgentStatus } from "./agent-runner.ts";
 import { avatarState, type AvatarState } from "../shared/avatar.ts";
 import type { Finding } from "./reviewer.ts";
+import type { Feature } from "./features.ts";
 
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
@@ -62,6 +63,7 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS pulls (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
@@ -168,6 +170,17 @@ export function openStore(dataDir: string) {
     reviews(): Review[] {
       const rows = db.prepare("SELECT json FROM reviews ORDER BY seq DESC").all() as unknown as { json: string }[];
       return rows.map((r) => JSON.parse(r.json) as Review);
+    },
+    addFeature(f: Feature) {
+      db.prepare("INSERT INTO features (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM features))").run(f.id, JSON.stringify(f));
+    },
+    updateFeature(f: Feature) {
+      db.prepare("UPDATE features SET json = ? WHERE id = ?").run(JSON.stringify(f), f.id);
+    },
+    /** Oldest first. */
+    features(): Feature[] {
+      const rows = db.prepare("SELECT json FROM features ORDER BY seq").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as Feature);
     },
     updatePull(p: Pull) {
       db.prepare("UPDATE pulls SET json = ? WHERE id = ?").run(JSON.stringify(p), p.id);

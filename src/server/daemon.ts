@@ -13,6 +13,7 @@ import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./ap
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
 import { createPullRaiser } from "./pull-requests.ts";
+import { checkLook, createFeatures, leadTask, type Feature } from "./features.ts";
 import { createReviewStage } from "./review-stage.ts";
 import type { Reviewer } from "./reviewer.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets, type Ticket } from "./tickets.ts";
@@ -85,6 +86,7 @@ export async function startDaemon(opts: DaemonOptions) {
     for (const s of sockets) if (s.readyState === s.OPEN) s.send(text);
   };
 
+  const features = createFeatures(store);
   const inbox = createInbox(store, (item, open) => broadcast({ type: "inbox", item, open }));
 
   const mode: Mode = opts.mode ?? "local";
@@ -212,6 +214,8 @@ export async function startDaemon(opts: DaemonOptions) {
   const queue: Queued[] = [];
   /** Set when an agent reports the plan's usage limit; the queue stays paused until the user resumes it. */
   let rateLimit: { since: number; agentId: string } | null = null;
+  /** A ticket of a feature whose spec or ticket breakdown the user has not approved yet is never started. */
+  const held = (projectId: string, ticket: Ticket) => features.holding(projectId, ticket);
   const ticketOf = (q: Queued) => {
     const project = store.projects().find((p) => p.id === q.projectId);
     return { project, ticket: project ? readTickets(project.path, project.id).find((t) => t.id === q.ticketId) : undefined };
@@ -219,7 +223,7 @@ export async function startDaemon(opts: DaemonOptions) {
   const limitsView = () => ({
     cap: cap(), max: MAX_CAP, running: running(),
     rateLimited: rateLimit,
-    queued: queue.map((q) => ({ ...q, blocked: ticketOf(q).ticket?.blocked ?? false })),
+    queued: queue.map((q) => { const { project, ticket } = ticketOf(q); return { ...q, blocked: (ticket?.blocked ?? false) || (!!project && !!ticket && !!held(project.id, ticket)) }; }),
   });
   const limitsChanged = () => broadcast({ type: "limits", limits: limitsView() });
   /** Starts queued tickets, oldest first, while there is a free slot, no rate limit and no unmet blocker. */
@@ -228,7 +232,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const q = queue[i]!;
       const { project, ticket } = ticketOf(q);
       if (!project || !ticket) { queue.splice(i, 1); continue; }
-      if (ticket.blocked || q.error) { i++; continue; }
+      if (ticket.blocked || q.error || held(project.id, ticket)) { i++; continue; }
       const r = spawn(project, q.name, ticket, false);
       if (r.code === 201) queue.splice(i, 1);
       else { q.error = String((r.body as { error?: string }).error ?? "could not start"); i++; }
@@ -237,9 +241,10 @@ export async function startDaemon(opts: DaemonOptions) {
   }
 
   /** Creates the agent (and its clone, for a ticket) and starts it. */
-  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean): { code: number; body: unknown } => {
+  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string): { code: number; body: unknown } => {
     const projectId = project.id;
-    const identity = pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
+    const look = ticket ? features.list(projectId).find((f) => f.slug === ticket.feature)?.looks[ticket.key] : undefined;
+    const identity = look ?? pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
     const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
     let workspace: Workspace | null = null;
     if (ticket) {
@@ -247,7 +252,7 @@ export async function startDaemon(opts: DaemonOptions) {
       catch (err) { return { code: 500, body: { error: `could not create clone: ${(err as Error).message}` } }; }
     }
     const cwd = workspace?.path ?? project.path;
-    const task = ticket ? taskFor(ticket) : undefined;
+    const task = ticket ? taskFor(ticket) : leadPrompt;
     store.addAgent(agent);
     if (workspace) {
       agentBranch.set(agent.id, workspace.branch);
@@ -269,6 +274,87 @@ export async function startDaemon(opts: DaemonOptions) {
     });
     return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
   };
+
+  /** What the Plan screen shows: the feature, its spec text, its tickets with dependencies and looks, and the three gates. */
+  function featureView(project: Project, f: Feature) {
+    const all = readTickets(project.path, project.id);
+    const mine = all.filter((t) => t.feature === f.slug);
+    return {
+      ...f,
+      spec: features.specText(project.path, f),
+      gates: features.gates(f, all),
+      tickets: mine.map((t) => ({
+        id: t.id, key: t.key, title: t.title, column: t.column, blocked: t.blocked, blockers: t.blockers, agent: t.agent,
+        shape: f.looks[t.key]?.shape ?? null, color: f.looks[t.key]?.color ?? null,
+      })),
+    };
+  }
+  const featureChanged = (f: Feature) => {
+    const project = store.projects().find((p) => p.id === f.projectId);
+    if (project) broadcast({ type: "feature", feature: featureView(project, f) });
+  };
+
+  /** The user answered a spec or ticket gate in the Inbox: move the feature on, or send the lead back to revise. */
+  function planDecided(item: { id: string; decision?: string | null }) {
+    const f = store.features().find((x) => x.gateItemId === item.id);
+    if (!f) return;
+    const ok = item.decision === "approve";
+    const stage = f.stage === "spec-gate" ? (ok ? "tickets" : "grill") : f.stage === "tickets-gate" ? (ok ? "build" : "tickets") : f.stage;
+    featureChanged(features.update({ ...f, stage, gateItemId: null }));
+    if (stage === "build") drain();
+  }
+
+  /** The planning tools of the lead agent of a feature; undefined for every other agent. */
+  function leadTools(agentId: string) {
+    const first = store.features().find((x) => x.leadAgentId === agentId);
+    if (!first) return undefined;
+    const fresh = () => features.get(first.id)!;
+    const project = store.projects().find((p) => p.id === first.projectId)!;
+    /** Raises the gate's Inbox item and waits for the verdict; planDecided moves the stage when the user answers. */
+    const gate = async (stage: "spec-gate" | "tickets-gate", what: string, why: string, facts: { k: string; v: string }[]) => {
+      const { item, answer } = inbox.raise({ kind: "plan", what, why, facts, agentId, projectId: project.id });
+      featureChanged(features.update({ ...fresh(), stage, gateItemId: item.id }));
+      return answer;
+    };
+    const ticketsOf = (f: Feature) => readTickets(project.path, project.id).filter((t) => t.feature === f.slug);
+    return {
+      async submitSpec(summary: string) {
+        const f = fresh();
+        if (f.stage === "spec-gate") return "The spec is already waiting for the user's approval.";
+        if (f.stage !== "grill") return "The spec is already approved. Slice it into tickets and call submit_tickets.";
+        const text = features.specText(project.path, f);
+        if (!text?.trim()) return `Write the spec to .scratch/${f.slug}/spec.md first, then call submit_spec.`;
+        const a = await gate("spec-gate", `Approve the spec: ${f.description}`, summary, [{ k: "Feature", v: f.description }, { k: "Spec", v: `.scratch/${f.slug}/spec.md` }]);
+        if (a.decision === "approve") return `Approved: the spec. Now slice it into tickets under .scratch/${f.slug}/issues and call submit_tickets.`;
+        if (a.decision === "deny") return `Denied: the spec${a.reply ? `. Reason: ${a.reply}` : ""}. Revise it and call submit_spec again.`;
+        return `The user replied: ${a.reply ?? ""}. Revise the spec and call submit_spec again.`;
+      },
+      async submitTickets(input: { workers?: number; agents?: { ticket: string; shape: string; color: string }[] }) {
+        const f = fresh();
+        if (f.stage === "tickets-gate") return "The tickets are already waiting for the user's approval.";
+        if (f.stage === "build") return "The tickets are already approved and workers are building them.";
+        if (f.stage !== "tickets") return "The spec must be approved before you submit tickets. Call submit_spec first.";
+        const mine = ticketsOf(f);
+        if (mine.length === 0) return `Write the tickets to .scratch/${f.slug}/issues first (NN-slug.md), then call submit_tickets.`;
+        const looks: Feature["looks"] = {};
+        for (const a of input.agents ?? []) {
+          const t = mine.find((x) => Number(x.key) === Number(a.ticket));
+          if (!t) return `No ticket ${a.ticket} in .scratch/${f.slug}/issues.`;
+          const bad = checkLook(a.shape, a.color);
+          if (bad) return `Ticket ${a.ticket}: ${bad}.`;
+          looks[t.key] = { shape: a.shape as never, color: a.color };
+        }
+        featureChanged(features.update({ ...fresh(), looks, suggestedWorkers: input.workers ?? null }));
+        const list = mine.map((t) => `${t.key} ${t.title}${t.blockers.length ? ` (after ${t.blockers.map((b) => b.key).join(", ")})` : ""}`).join("; ");
+        const a = await gate("tickets-gate", `Approve ${mine.length} ticket${mine.length === 1 ? "" : "s"}: ${f.description}`,
+          input.workers ? `The lead suggests ${input.workers} worker${input.workers === 1 ? "" : "s"}.` : "",
+          [{ k: "Tickets", v: list }, ...(input.workers ? [{ k: "Suggested workers", v: String(input.workers) }] : [])]);
+        if (a.decision === "approve") return "Approved: the tickets. Bridge now starts workers for them; you are done.";
+        if (a.decision === "deny") return `Denied: the tickets${a.reply ? `. Reason: ${a.reply}` : ""}. Revise them and call submit_tickets again.`;
+        return `The user replied: ${a.reply ?? ""}. Revise the tickets and call submit_tickets again.`;
+      },
+    };
+  }
 
   async function api(req: IncomingMessage, res: ServerResponse, path: string) {
     const method = req.method ?? "GET";
@@ -367,6 +453,8 @@ export async function startDaemon(opts: DaemonOptions) {
       const ticket = ticketId ? readTickets(project.path, project.id).find((t) => t.id === ticketId) : undefined;
       if (ticketId && !ticket) return send(res, 404, { error: "unknown ticket" });
       const lead = body.lead === true;
+      const hold = ticket && !lead ? held(project.id, ticket) : undefined;
+      if (ticket && hold) return send(res, 409, { error: `Not started: ${features.holdReason(hold)}. Approve it in the Inbox first.` });
       if (ticket && !lead && (rateLimit || running() >= cap() || ticket.blocked)) {
         const entry: Queued = { id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title };
         queue.push(entry);
@@ -375,6 +463,28 @@ export async function startDaemon(opts: DaemonOptions) {
       }
       const r = spawn(project, name, ticket, lead);
       return send(res, r.code, r.body);
+    }
+    const fm = path.match(/^\/api\/projects\/([^/]+)\/features$/);
+    if (fm) {
+      const project = store.projects().find((p) => p.id === fm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      if (method === "GET") return send(res, 200, features.list(project.id).map((f) => featureView(project, f)));
+      if (method === "POST") {
+        const { description } = await readJson(req);
+        if (typeof description !== "string" || !description.trim()) return send(res, 400, { error: "describe the feature" });
+        const f = features.create({ id: randomUUID(), projectId: project.id, description: description.trim(), leadAgentId: null });
+        const r = spawn(project, "Lead", undefined, true, leadTask(f));
+        if (r.code !== 201) return send(res, r.code, r.body);
+        const withLead = features.update({ ...f, leadAgentId: (r.body as { id: string }).id });
+        broadcast({ type: "feature", feature: featureView(project, withLead) });
+        return send(res, 201, featureView(project, withLead));
+      }
+    }
+    const fg = path.match(/^\/api\/features\/([^/]+)$/);
+    if (fg && method === "GET") {
+      const f = features.get(fg[1]);
+      const project = f && store.projects().find((p) => p.id === f.projectId);
+      return f && project ? send(res, 200, featureView(project, f)) : send(res, 404, { error: "unknown feature" });
     }
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
@@ -388,6 +498,7 @@ export async function startDaemon(opts: DaemonOptions) {
       if (grants && scope === "ticket" && !open.ticketKey) return send(res, 400, { error: "this agent has no ticket" });
       const item = inbox.resolve(im[1]!, { decision, reply: typeof text === "string" && text ? text : undefined });
       if (item && grants) approvals.grant(item, scope);
+      if (item?.kind === "plan") planDecided(item);
       return item ? send(res, 200, item) : send(res, 404, { error: "unknown or already resolved" });
     }
     if (path === "/api/approvals" && method === "GET") return send(res, 200, approvals.list());
@@ -499,6 +610,7 @@ export async function startDaemon(opts: DaemonOptions) {
           try { body = readFileSync(join(project.path, t.file), "utf8"); } catch { /* file gone */ }
           return { key: t.key, title: t.title, status: t.status, blockers: t.blockers, file: t.file, body };
         },
+        lead: leadTools(id),
         setStatus: (s) => { if (store.agent(id)?.status !== "done") { setStatus(s); if (s === "done") onDone(id); } },
         async requestAccess(kind, detail, item) {
           if (approvals.covering(agent.projectId, agent.ticketKey ?? null, kind, detail)) return { decision: "approve" };
