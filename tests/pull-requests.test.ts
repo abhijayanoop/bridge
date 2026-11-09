@@ -25,6 +25,7 @@ async function boot(result?: (c: Call) => PullResult, options: BootOptions = {})
       calls.push(c);
       return result ? result(c) : { ok: true, url: `https://github.com/o/r/pull/${calls.length}`, number: calls.length };
     },
+    createRepository: async () => ({ ok: false, reason: "unused" }),
     pullState: async () => "open",
     mergePullRequest: async () => ({ ok: true }),
     ...options.github,

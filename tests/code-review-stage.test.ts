@@ -32,6 +32,7 @@ async function boot(withReviewer = true, existingDir?: string) {
   const opened: { branch: string; title: string }[] = [];
   const github: GitHub = {
     createPullRequest: async (c) => { opened.push(c); return { ok: true, url: `https://github.com/o/r/pull/${opened.length}`, number: opened.length }; },
+    createRepository: async () => ({ ok: false, reason: "unused" }),
     pullState: async () => "open",
     mergePullRequest: async () => ({ ok: true }),
   };

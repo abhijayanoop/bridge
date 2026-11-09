@@ -6,6 +6,7 @@ import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
 import { PlanScreen } from "./plan.tsx";
 import { ReviewScreen, type PullInfo, type ReviewInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
+import { FirstRunSetup, NewProjectDialog } from "./setup.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
 interface Project { id: string; name: string; path: string }
@@ -35,7 +36,7 @@ function LeadCard({ agent }: { agent?: AgentInfo }) {
   );
 }
 
-function Sidebar({ project, projects, section, onSelect, onSwitch, lead, inbox }: { inbox: number; project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void; lead?: AgentInfo }) {
+function Sidebar({ project, projects, section, onSelect, onSwitch, onAdd, lead, inbox }: { onAdd: () => void; inbox: number; project?: Project; projects: Project[]; section: string; onSelect: (s: string) => void; onSwitch: (id: string) => void; lead?: AgentInfo }) {
   const [open, setOpen] = useState(false);
   return (
     <nav aria-label="Primary" className="flex w-60 flex-none flex-col gap-1 bg-bg p-3">
@@ -59,6 +60,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, lead, inbox }
             </li>
           ))}
           {projects.length === 0 && <li className="px-2.5 py-1.5 text-fg-3">Run bridge in a repo to add it.</li>}
+          <li><button type="button" onClick={() => { onAdd(); setOpen(false); }} className="w-full rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium text-fg-2 hover:bg-surface-2">+ Add or create project</button></li>
         </ul>
       )}
       <span className="mt-5 px-2.5 pb-1 text-[11px] font-medium text-fg-3">Workspace</span>
@@ -204,6 +206,9 @@ function App() {
   const [section, setSection] = useState("Board");
   const [limits, setLimits] = useState<Limits>({ cap: 2, max: 3, running: 0, rateLimited: null, queued: [] });
   const inbox = useInbox();
+  const [adding, setAdding] = useState(false);
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [setupTick, setSetupTick] = useState(0);
 
   useEffect(() => {
     const load = () => {
@@ -221,15 +226,21 @@ function App() {
   }, []);
 
   const project = projects.find((p) => p.id === activeId) ?? projects[0];
-  const switchTo = (id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
+  const projectId = project?.id;
+  useEffect(() => {
+    if (!projectId) { setSetupNeeded(false); return; }
+    fetch(`/api/projects/${projectId}/setup`).then((r) => r.json()).then((s) => setSetupNeeded(s.needed === true)).catch(() => {});
+  }, [projectId, setupTick]);
+  const switchTo =(id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
   const post = (path: string, body: unknown) => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()).then(setLimits).catch(() => {});
   return (
     <div className="flex h-full">
-      <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} section={section} onSelect={setSection} />
+      <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} onAdd={() => setAdding(true)} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} />
         <main className="flex-1 overflow-auto p-5">
-          {section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : (
+          {adding && <NewProjectDialog onClose={() => setAdding(false)} onOpened={() => setSetupTick((n) => n + 1)} />}
+          {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

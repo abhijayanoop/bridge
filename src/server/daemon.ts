@@ -16,6 +16,7 @@ import { createPullRaiser } from "./pull-requests.ts";
 import { checkLook, createFeatures, leadTask, type Feature } from "./features.ts";
 import { createReviewStage } from "./review-stage.ts";
 import type { Reviewer } from "./reviewer.ts";
+import { TRACKERS, isConfigured, isFreeTarget, newProjectSteps, runSetup, scaffoldProject, validProjectName, type Tracker } from "./setup.ts";
 import { COLUMNS, moveTicket, readTickets, watchTickets, type Ticket } from "./tickets.ts";
 
 /** Workers that may run at once: 2 by default, raisable to 3 (the Pro plan's limits make more costly). */
@@ -416,6 +417,40 @@ export async function startDaemon(opts: DaemonOptions) {
       store.setActiveProject(project.id);
       broadcast({ type: "active-project", projectId: project.id });
       return send(res, created ? 201 : 200, project);
+    }
+    if (path === "/api/projects/new" && method === "POST") {
+      const { name, parent, github, approved } = await readJson(req);
+      if (!validProjectName(name)) return send(res, 400, { error: "name must be a plain folder name" });
+      if (typeof parent !== "string" || !parent || !existsSync(resolve(parent)) || !statSync(resolve(parent)).isDirectory()) return send(res, 400, { error: "parent folder not found" });
+      const dir = join(resolve(parent), name);
+      if (!isFreeTarget(dir)) return send(res, 409, { error: "that folder already exists and is not empty" });
+      const steps = newProjectSteps(dir, github === true);
+      if (approved !== true) return send(res, 200, { approved: false, path: dir, steps });
+      try { scaffoldProject(dir, name); } catch (e) { return send(res, 500, { error: `could not create the repo: ${(e as Error).message}` }); }
+      const project = { id: randomUUID(), name, path: dir, workspaceId: DEFAULT_WORKSPACE };
+      store.addProject(project);
+      store.setSetting(`setupDone:${project.id}`, "1");
+      broadcast({ type: "project", project });
+      watchProject(project);
+      store.setActiveProject(project.id);
+      broadcast({ type: "active-project", projectId: project.id });
+      let gh: unknown;
+      if (github === true) gh = opts.github ? await opts.github.createRepository({ repoPath: dir, name, private: true }) : { ok: false, reason: "GitHub is not available" };
+      return send(res, 201, { project, ...(gh ? { github: gh } : {}) });
+    }
+    const sm = path.match(/^\/api\/projects\/([^/]+)\/setup$/);
+    if (sm) {
+      const project = store.projects().find((p) => p.id === sm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      const view = () => ({ needed: store.setting(`setupDone:${project.id}`) !== "1" && !isConfigured(project.path) });
+      if (method === "GET") return send(res, 200, view());
+      if (method === "POST") {
+        const { tracker, labels } = await readJson(req);
+        if (!(TRACKERS as readonly string[]).includes(tracker)) return send(res, 400, { error: "tracker must be local or github" });
+        const written = runSetup(project.path, tracker as Tracker, labels && typeof labels === "object" ? labels : {});
+        store.setSetting(`setupDone:${project.id}`, "1");
+        return send(res, 200, { ...view(), written });
+      }
     }
     const pm = path.match(/^\/api\/projects\/([^/]+)\/(select|tickets)$/);
     if (pm) {
