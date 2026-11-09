@@ -4,10 +4,10 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] The first-run screen guides setup and is skipped on later opens
-- [ ] The new-project dialog offers current folder, a path, or create new
-- [ ] Creating a new repo scaffolds it after my approval and can create the GitHub repo
+- [x] The first-run screen guides setup and is skipped on later opens
+- [x] The new-project dialog offers current folder, a path, or create new
+- [x] Creating a new repo scaffolds it after my approval and can create the GitHub repo
