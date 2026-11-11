@@ -14,6 +14,7 @@ import { createWorkspaces, type Mode, type SkillSource, type Workspace } from ".
 import type { GitHub } from "./github.ts";
 import { createPullRaiser } from "./pull-requests.ts";
 import { checkLook, createFeatures, leadTask, type Feature } from "./features.ts";
+import { QUICK_ACTIONS, quickActionTask, retroTask } from "./quick-actions.ts";
 import { createReviewStage } from "./review-stage.ts";
 import type { Reviewer } from "./reviewer.ts";
 import { TRACKERS, isConfigured, isFreeTarget, newProjectSteps, runSetup, scaffoldProject, validProjectName, type Tracker } from "./setup.ts";
@@ -255,6 +256,7 @@ export async function startDaemon(opts: DaemonOptions) {
   };
   /** Starts queued tickets, oldest first, while there is a free slot, no rate limit and no unmet blocker. */
   function drain() {
+    offerRetros();
     for (let i = 0; i < queue.length && !rateLimit && running() < cap();) {
       const q = queue[i]!;
       const { project, ticket } = ticketOf(q);
@@ -338,6 +340,28 @@ export async function startDaemon(opts: DaemonOptions) {
     const stage = f.stage === "spec-gate" ? (ok ? "tickets" : "grill") : f.stage === "tickets-gate" ? (ok ? "build" : "tickets") : f.stage;
     featureChanged(features.update({ ...f, stage, gateItemId: null }));
     if (stage === "build") drain();
+  }
+
+  /** Offers a retro, once, for each feature whose tickets are all done. */
+  function offerRetros() {
+    if (closing) return;
+    for (const f of store.features()) {
+      if (f.retroItemId || f.stage !== "build") continue;
+      const project = store.projects().find((p) => p.id === f.projectId);
+      if (!project || features.gates(f, readTickets(project.path, project.id)).merge !== "approved") continue;
+      const { item } = inbox.raise({
+        kind: "retro", what: `Run a retro on: ${f.description}`, why: "Every ticket of this feature is done. A retro captures what to keep and what to change.",
+        facts: [{ k: "Feature", v: f.description }], agentId: f.leadAgentId ?? "", projectId: project.id,
+      });
+      featureChanged(features.update({ ...f, retroItemId: item.id }));
+    }
+  }
+
+  /** The user answered a retro offer: approving starts a retro agent. */
+  function retroDecided(item: { id: string; decision?: string | null }) {
+    const f = store.features().find((x) => x.retroItemId === item.id);
+    const project = f && store.projects().find((p) => p.id === f.projectId);
+    if (f && project && item.decision === "approve") spawn(project, "Retro", undefined, false, retroTask(f));
   }
 
   /** The planning tools of the lead agent of a feature; undefined for every other agent. */
@@ -579,6 +603,17 @@ export async function startDaemon(opts: DaemonOptions) {
       const project = f && store.projects().find((p) => p.id === f.projectId);
       return f && project ? send(res, 200, featureView(project, f)) : send(res, 404, { error: "unknown feature" });
     }
+    if (path === "/api/quick-actions" && method === "GET") return send(res, 200, QUICK_ACTIONS);
+    const qm = path.match(/^\/api\/projects\/([^/]+)\/quick-actions$/);
+    if (qm && method === "POST") {
+      const project = store.projects().find((p) => p.id === qm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      const { action, context } = await readJson(req);
+      const a = QUICK_ACTIONS.find((x) => x.id === action);
+      if (!a) return send(res, 400, { error: "unknown action" });
+      const r = spawn(project, a.label, undefined, false, quickActionTask(a, typeof context === "string" ? context : ""));
+      return send(res, r.code, r.body);
+    }
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
     if (im && method === "POST") {
@@ -592,6 +627,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const item = inbox.resolve(im[1]!, { decision, reply: typeof text === "string" && text ? text : undefined });
       if (item && grants) approvals.grant(item, scope);
       if (item?.kind === "plan") planDecided(item);
+      if (item?.kind === "retro") retroDecided(item);
       return item ? send(res, 200, item) : send(res, 404, { error: "unknown or already resolved" });
     }
     if (path === "/api/approvals" && method === "GET") return send(res, 200, approvals.list());

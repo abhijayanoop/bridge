@@ -6,6 +6,7 @@ import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
 import { PlanScreen } from "./plan.tsx";
 import { ReviewScreen, type PullInfo, type ReviewInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
+import { CommandPalette, isPaletteKey } from "./palette.tsx";
 import { FirstRunSetup, NewProjectDialog } from "./setup.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
@@ -112,7 +113,7 @@ function QuitButton() {
   );
 }
 
-function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: number; project?: Project; section: string; limits: Limits; onCap: (cap: number) => void; onResume: () => void }) {
+function TopBar({ project, section, limits, inbox, onCap, onResume, onPalette }: { onPalette: () => void; inbox: number; project?: Project; section: string; limits: Limits; onCap: (cap: number) => void; onResume: () => void }) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line bg-bg px-5 py-2 text-[13px]">
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
@@ -142,6 +143,7 @@ function TopBar({ project, section, limits, inbox, onCap, onResume }: { inbox: n
         </select>
         <span className="text-fg-3">workers</span>
       </span>
+      <button type="button" onClick={onPalette} aria-keyshortcuts="Control+K Meta+K" className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5 text-fg-2 hover:bg-surface">Quick actions<kbd className="font-mono text-[11px] text-fg-3">Ctrl K</kbd></button>
       <QuitButton />
     </header>
   );
@@ -243,6 +245,12 @@ function App() {
   const [adding, setAdding] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [setupTick, setSetupTick] = useState(0);
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (isPaletteKey(e)) { e.preventDefault(); setPalette((open) => !open); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const load = () => {
@@ -267,11 +275,18 @@ function App() {
   }, [projectId, setupTick]);
   const switchTo = (id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
   const post = (path: string, body: unknown) => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()).then(setLimits).catch(() => {});
+  const runAction = async (action: string, context: string): Promise<string | null> => {
+    if (!project) return "Open a project first.";
+    const r = await fetch(`/api/projects/${project.id}/quick-actions`, { method: "POST", body: JSON.stringify({ action, context }) }).catch(() => undefined);
+    if (r?.ok) { setSection("Agents"); return null; }
+    return (await r?.json().catch(() => undefined))?.error ?? "Could not start the agent.";
+  };
   return (
     <div className="flex h-full">
+      {palette && <CommandPalette sections={NAV} onGo={setSection} onRun={runAction} onClose={() => setPalette(false)} />}
       <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} onAdd={() => setAdding(true)} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} />
+        <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} onPalette={() => setPalette(true)} />
         <main className="flex-1 overflow-auto p-5">
           {adding && <NewProjectDialog onClose={() => setAdding(false)} onOpened={() => setSetupTick((n) => n + 1)} />}
           {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : (

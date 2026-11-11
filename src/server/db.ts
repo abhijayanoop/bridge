@@ -10,7 +10,7 @@ export interface Project { id: string; name: string; path: string; workspaceId: 
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
 export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; activity?: string | null; avatarState?: AvatarState }
-export type InboxKind = "question" | "access" | "plan" | "merge";
+export type InboxKind = "question" | "access" | "plan" | "merge" | "retro";
 export interface InboxItem {
   id: string; agentId: string; projectId: string; kind: InboxKind;
   /** For access requests: domain, secret, push or database. */

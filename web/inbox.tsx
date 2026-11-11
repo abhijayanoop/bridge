@@ -3,20 +3,21 @@ import { AgentAvatar } from "./avatar.tsx";
 import type { AgentInfo } from "./agents.tsx";
 
 export interface InboxItemInfo {
-  id: string; agentId: string; kind: "question" | "access" | "plan" | "merge"; access?: string | null;
+  id: string; agentId: string; kind: "question" | "access" | "plan" | "merge" | "retro"; access?: string | null;
   what: string; why: string; facts: { k: string; v: string }[]; ticketKey?: string | null; createdAt: number;
   status: "open" | "resolved"; decision?: "approve" | "deny" | "reply" | null; reply?: string | null;
 }
 
 const ACCESS_CHIP: Record<string, string> = { domain: "Network domain", secret: "Secret", push: "Git push", database: "Database" };
 const chip = (i: InboxItemInfo) =>
-  i.kind === "access" ? ACCESS_CHIP[i.access ?? ""] ?? "Access" : i.kind === "question" ? "Question" : i.kind === "plan" ? "Plan approval" : "Ready to merge";
+  i.kind === "access" ? ACCESS_CHIP[i.access ?? ""] ?? "Access" : i.kind === "question" ? "Question" : i.kind === "plan" ? "Plan approval" : i.kind === "retro" ? "Retro" : "Ready to merge";
 const FILTERS: { label: string; match: (i: InboxItemInfo) => boolean }[] = [
   { label: "All", match: () => true },
   { label: "Access", match: (i) => i.kind === "access" },
   { label: "Questions", match: (i) => i.kind === "question" },
   { label: "Merges", match: (i) => i.kind === "merge" },
   { label: "Plans", match: (i) => i.kind === "plan" },
+  { label: "Retros", match: (i) => i.kind === "retro" },
 ];
 const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? "now" : m < 60 ? `${m}m` : `${Math.round(m / 60)}h`; };
 const outcome = (i: InboxItemInfo) => i.decision === "approve" ? "Approved" : i.decision === "deny" ? "Denied" : `Replied: ${i.reply ?? ""}`;
@@ -53,7 +54,7 @@ function Item({ item, agent, onResolve }: { item: InboxItemInfo; agent?: AgentIn
         )}
         {open ? (
           <div className="flex gap-2 pt-1">
-            {!askable && <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg`} onClick={() => onResolve(item.id, "approve", undefined, "once")}>{item.kind === "access" ? "Approve once" : "Approve"}</button>}
+            {!askable && <button type="button" className={`${btn} bg-fg text-bg hover:bg-fg`} onClick={() => onResolve(item.id, "approve", undefined, "once")}>{item.kind === "access" ? "Approve once" : item.kind === "retro" ? "Run retro" : "Approve"}</button>}
             {item.kind === "access" && item.ticketKey && <button type="button" className={btn} onClick={() => onResolve(item.id, "approve", undefined, "ticket")}>This ticket</button>}
             {item.kind === "access" && <button type="button" className={btn} onClick={() => onResolve(item.id, "approve", undefined, "project")}>Whole project</button>}
             {!askable && <button type="button" className={btn} onClick={() => onResolve(item.id, "deny")}>Deny</button>}

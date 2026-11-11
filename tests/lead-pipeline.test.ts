@@ -243,3 +243,54 @@ describe("lead pipeline through the public API", () => {
     expect((await post(`/api/projects/nope/features`, { description: "x" })).status).toBe(404);
   });
 });
+
+describe("retro after a feature", () => {
+  /** Takes a feature through both gates, then offers a way to move its single ticket to Done. */
+  async function finish(b: Awaited<ReturnType<typeof boot>>) {
+    const f = await b.startFeature();
+    const slug = f.json.slug;
+    b.writeSpec(slug);
+    b.writeTicket(slug, "01", "First");
+    const spec = f.lead!.call("submit_spec", { summary: "s" });
+    await b.resolve((await b.nextOpen()).id, { decision: "approve" });
+    await spec;
+    const tickets = f.lead!.call("submit_tickets", { workers: 1 });
+    await expect.poll(async () => (await b.get("/api/inbox")).items.filter((i: any) => i.status === "open").length).toBe(1);
+    await b.resolve((await b.get("/api/inbox")).items.find((i: any) => i.status === "open").id, { decision: "approve" });
+    await tickets;
+    const move = async () => {
+      const all = await b.get(`/api/projects/${b.project.id}/tickets`);
+      await b.post(`/api/projects/${b.project.id}/tickets/status`, { ticket: all[0].id, column: "done" });
+    };
+    const retroItems = async () => (await b.get("/api/inbox")).items.filter((i: any) => i.kind === "retro");
+    return { slug, move, retroItems };
+  }
+
+  it("is offered once when every ticket is done, and approving starts a retro agent", async () => {
+    const b = await boot();
+    const { slug, move, retroItems } = await finish(b);
+    expect(await retroItems()).toHaveLength(0);
+    await move();
+    await expect.poll(async () => (await retroItems()).length).toBe(1);
+    const item = (await retroItems())[0];
+    expect(item.what).toMatch(/retro/i);
+    await move();
+    expect(await retroItems()).toHaveLength(1);
+    const before = b.specs.length;
+    await b.resolve(item.id, { decision: "approve" });
+    await expect.poll(() => b.specs.length).toBe(before + 1);
+    expect(b.specs.at(-1)!.task).toContain("mattpocock-skills:retro");
+    expect(b.specs.at(-1)!.task).toContain(slug);
+    expect((await b.get("/api/agents")).filter((a: any) => a.name === "Retro")).toHaveLength(1);
+  });
+
+  it("starts nothing when the offer is declined", async () => {
+    const b = await boot();
+    const { move, retroItems } = await finish(b);
+    await move();
+    await expect.poll(async () => (await retroItems()).length).toBe(1);
+    const before = b.specs.length;
+    await b.resolve((await retroItems())[0].id, { decision: "deny" });
+    expect(b.specs.length).toBe(before);
+  });
+});

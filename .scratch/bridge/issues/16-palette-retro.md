@@ -4,10 +4,10 @@
 
 **Blocked by:** 13
 
-**Status:** ready-for-agent
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Ctrl or Cmd plus K opens the palette; actions start an agent with the matching skill
-- [ ] The palette is keyboard navigable and accessible
-- [ ] A retro is offered when a feature finishes
+- [x] Ctrl or Cmd plus K opens the palette; actions start an agent with the matching skill
+- [x] The palette is keyboard navigable and accessible
+- [x] A retro is offered when a feature finishes

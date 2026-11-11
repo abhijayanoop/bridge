@@ -21,6 +21,8 @@ export interface Feature {
   stage: Stage; leadAgentId: string | null;
   /** The Inbox item that is currently deciding a gate. */
   gateItemId: string | null;
+  /** The Inbox item that offered a retro once the feature finished; set so it is offered only once. */
+  retroItemId?: string | null;
   suggestedWorkers: number | null;
   /** Ticket key (the NN prefix) to the shape and colour the lead picked. */
   looks: Record<string, Look>;
