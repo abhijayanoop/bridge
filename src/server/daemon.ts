@@ -845,6 +845,16 @@ export async function startDaemon(opts: DaemonOptions) {
       ? `${previousExit.failed.length} agent${previousExit.failed.length === 1 ? "" : "s"} could not be stopped when Bridge last closed: ${previousExit.failed.map((f) => `${f.name}${f.ticketKey ? ` (ticket ${f.ticketKey})` : ""}: ${f.error}`).join("; ")}. Leftover processes may still be running.`
       : null,
   };
+  // Features that finished before retros existed are not offered one: mark them handled, once.
+  if (!store.setting("retroBackfillDone")) {
+    for (const f of store.features()) {
+      const project = store.projects().find((p) => p.id === f.projectId);
+      if (!f.retroItemId && f.stage === "build" && project && features.gates(f, readTickets(project.path, project.id)).merge === "approved") {
+        features.update({ ...f, retroItemId: "skipped" });
+      }
+    }
+    store.setSetting("retroBackfillDone", "1");
+  }
   for (const p of store.projects()) watchProject(p);
   drain();
 

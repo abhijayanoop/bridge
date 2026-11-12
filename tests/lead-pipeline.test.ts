@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { openStore } from "../src/server/db.ts";
 import { startDaemon } from "../src/server/daemon.ts";
 import { createFakeAgentRunner } from "../src/server/fake-agent.ts";
 import type { AgentRunner, AgentSpec } from "../src/server/agent-runner.ts";
@@ -282,6 +283,23 @@ describe("retro after a feature", () => {
     expect(b.specs.at(-1)!.task).toContain("mattpocock-skills:retro");
     expect(b.specs.at(-1)!.task).toContain(slug);
     expect((await b.get("/api/agents")).filter((a: any) => a.name === "Retro")).toHaveLength(1);
+  });
+
+  it("does not offer a retro for a feature that finished before retros existed", async () => {
+    const b = await boot();
+    const { slug } = await finish(b);
+    // Finish the ticket on disk while Bridge is stopped, and make the next launch look like the first one after an upgrade.
+    await b.daemon.close();
+    const file = join(b.repo, ".scratch", slug, "issues", "01-first.md");
+    writeFileSync(file, readFileSync(file, "utf8").replace("ready-for-agent", "done"));
+    const store = openStore(join(b.dir, "data"));
+    store.deleteSetting("retroBackfillDone");
+    store.close();
+    const again = await boot({ dir: b.dir });
+    await again.get("/api/limits");
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await again.get(`/api/projects/${again.project.id}/features`))[0].gates.merge).toBe("approved");
+    expect((await again.get("/api/inbox")).items.filter((i: any) => i.kind === "retro")).toHaveLength(0);
   });
 
   it("starts nothing when the offer is declined", async () => {
