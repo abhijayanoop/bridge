@@ -1,5 +1,5 @@
-import { useEscape } from "./a11y.ts";
 import { useEffect, useState } from "react";
+import { useDialogFocus, useEscape } from "./a11y.ts";
 
 const ROLES = ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"];
 const field = "h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg";
@@ -44,6 +44,7 @@ export function FirstRunSetup({ projectId, projectName, onDone }: { projectId: s
 /** Open the current folder, open a path, or create a new repo after approving the plan. */
 export function NewProjectDialog({ onClose, onOpened }: { onClose: () => void; onOpened: () => void }) {
   useEscape(onClose);
+  const focusRef = useDialogFocus<HTMLDivElement>();
   const [mode, setMode] = useState<"path" | "create">("path");
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
@@ -73,7 +74,7 @@ export function NewProjectDialog({ onClose, onOpened }: { onClose: () => void; o
   };
   return (
     <div role="dialog" aria-modal="true" aria-label="New project" className="fixed inset-0 z-20 grid place-items-center bg-black/40">
-      <div className="flex w-[28rem] flex-col gap-3 rounded-xl border border-line bg-bg p-5">
+      <div ref={focusRef} tabIndex={-1} className="flex w-[28rem] flex-col gap-3 rounded-xl border border-line bg-bg p-5 outline-none">
         <h2 className="text-base font-semibold">Add a project</h2>
         <div role="tablist" className="flex gap-1">
           <button type="button" role="tab" aria-selected={mode === "path"} className={secondary} onClick={() => setMode("path")}>Open a folder</button>

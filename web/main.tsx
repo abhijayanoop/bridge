@@ -91,7 +91,7 @@ function QuitButton() {
     const r = await fetch("/api/quit-check").then((x) => x.json()).catch(() => ({ warning: null }));
     if (r.warning) { setWarning(r.warning); setState("confirm"); } else void quit(false);
   };
-  useEscape(() => { if (state === "confirm") setState("idle"); });
+  useEscape(() => setState("idle"), state === "confirm");
   const quit = async (confirmed: boolean) => {
     const r = await fetch("/api/quit", { method: "POST", headers: ui, body: JSON.stringify({ confirmed }) }).catch(() => undefined);
     if (r?.ok) setState("stopped");
