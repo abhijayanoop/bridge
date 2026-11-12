@@ -4,10 +4,10 @@
 
 **Blocked by:** 01 to 17
 
-**Status:** ready-for-agent
+**Status:** done
 
 Parent: .scratch/bridge/spec.md
 
-- [ ] Design fidelity pass across all screens; worker cap and Analyst behaviour corrected to the spec
-- [ ] Keyboard and accessibility checks pass
-- [ ] README with demo, architecture and a threat model, plus credits for jsm-hq, Pocock's skills and thinking-orbs
+- [x] Design fidelity pass across all screens; worker cap and Analyst behaviour corrected to the spec
+- [x] Keyboard and accessibility checks pass
+- [x] README with demo, architecture and a threat model, plus credits for jsm-hq, Pocock's skills and thinking-orbs

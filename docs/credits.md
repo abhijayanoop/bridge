@@ -14,5 +14,5 @@ against the current upstream source.
 
 ## Other
 
-- JS Mastery's jsm-hq (MIT): reference for sandbox and approval ideas (later tickets).
-- Matt Pocock's skills: used as installed (later tickets).
+- JS Mastery's jsm-hq (MIT): reference for sandbox and approval ideas (see README).
+- Matt Pocock's skills: used as installed to drive the lead pipeline and workers; not redistributed.

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentAvatar } from "./avatar.tsx";
+import { useEscape } from "./a11y.ts";
 
 const field = "h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg";
 const primary = "h-9 rounded-lg bg-fg px-3 text-[13px] font-semibold text-bg disabled:opacity-50";
@@ -23,6 +24,7 @@ function AddConnection({ projectId, onClose, onSaved }: { projectId: string; onC
   const [connectionString, setConnectionString] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEscape(onClose);
   useEffect(() => { setSteps(null); }, [kind, database, role, tables]);
 
   const preview = async () => {
@@ -38,7 +40,7 @@ function AddConnection({ projectId, onClose, onSaved }: { projectId: string; onC
     if (r.ok) { setConnectionString(""); onSaved(); onClose(); } else setError(r.json.error ?? "Could not save the connection.");
   };
   return (
-    <div role="dialog" aria-label="Add a database connection" className="fixed inset-0 z-20 grid place-items-center overflow-auto bg-black/40 p-4">
+    <div role="dialog" aria-modal="true" aria-label="Add a database connection" className="fixed inset-0 z-20 grid place-items-center overflow-auto bg-black/40 p-4">
       <div className="flex w-[34rem] max-w-full flex-col gap-3 rounded-xl border border-line bg-bg p-5">
         <h2 className="text-base font-semibold">Connect a database, read-only</h2>
         <p className="text-fg-2">Step 1. Create a role that can only read. You run the steps yourself with your own admin access; Bridge never sees an admin password.</p>

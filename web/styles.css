@@ -49,3 +49,6 @@ body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-fami
   .bav * { animation: none !important; transition: none !important; }
   .s-listening .bav-halo { opacity: .22; transform: scale(1.2); }
 }
+
+/* Visible keyboard focus everywhere. */
+:focus-visible { outline: 2px solid #0a84ff; outline-offset: 2px; }

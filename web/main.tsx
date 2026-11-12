@@ -8,6 +8,7 @@ import { AnalystScreen } from "./analyst.tsx";
 import { ReviewScreen, type PullInfo, type ReviewInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { CommandPalette, isPaletteKey } from "./palette.tsx";
+import { useEscape } from "./a11y.ts";
 import { FirstRunSetup, NewProjectDialog } from "./setup.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
@@ -90,6 +91,7 @@ function QuitButton() {
     const r = await fetch("/api/quit-check").then((x) => x.json()).catch(() => ({ warning: null }));
     if (r.warning) { setWarning(r.warning); setState("confirm"); } else void quit(false);
   };
+  useEscape(() => { if (state === "confirm") setState("idle"); });
   const quit = async (confirmed: boolean) => {
     const r = await fetch("/api/quit", { method: "POST", headers: ui, body: JSON.stringify({ confirmed }) }).catch(() => undefined);
     if (r?.ok) setState("stopped");
@@ -99,7 +101,7 @@ function QuitButton() {
     <>
       <button type="button" onClick={ask} className="inline-flex h-8 items-center rounded-lg border border-line px-2.5 text-fg-2 hover:bg-surface">Quit</button>
       {state === "confirm" && (
-        <div role="alertdialog" aria-label="Quit Bridge" className="fixed inset-0 z-40 grid place-items-center bg-black/60">
+        <div role="alertdialog" aria-modal="true" aria-label="Quit Bridge" className="fixed inset-0 z-40 grid place-items-center bg-black/60">
           <div className="flex max-w-sm flex-col gap-3 rounded-xl border border-line bg-surface p-4">
             <p className="text-[13px] font-semibold">Quit Bridge?</p>
             <p className="text-fg-2">{warning}</p>
@@ -284,11 +286,12 @@ function App() {
   };
   return (
     <div className="flex h-full">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-fg focus:px-3 focus:py-2 focus:text-bg">Skip to content</a>
       {palette && <CommandPalette sections={NAV} onGo={setSection} onRun={runAction} onClose={() => setPalette(false)} />}
       <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} onAdd={() => setAdding(true)} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} onPalette={() => setPalette(true)} />
-        <main className="flex-1 overflow-auto p-5">
+        <main id="main" tabIndex={-1} aria-label={section} className="flex-1 overflow-auto p-5 outline-none">
           {adding && <NewProjectDialog onClose={() => setAdding(false)} onOpened={() => setSetupTick((n) => n + 1)} />}
           {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : section === "Analyst" ? <AnalystScreen projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
