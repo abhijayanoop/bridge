@@ -7,6 +7,8 @@ import { createPtyAgentRunner } from "./pty-agent.ts";
 import { resolveSandbox } from "./sbx.ts";
 import { createGitHubCli } from "./github.ts";
 import { createClaudeReviewer } from "./reviewer.ts";
+import { createRealDataSource } from "./datasource-real.ts";
+import { createFakeDataSource } from "./fake-datasource.ts";
 import { discoverPocockSkills } from "./workspace.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -30,6 +32,7 @@ const daemon = await startDaemon({
   runner: sandbox.runner, mode: sandbox.mode, networkRules: sandbox.networkRules, sandboxNotice: sandbox.notice,
   github: fake ? undefined : createGitHubCli(),
   reviewer: fake ? undefined : createClaudeReviewer(),
+  dataSource: fake ? createFakeDataSource({ customers: [{ id: 1, name: "Sample Person", city: "Nowhere" }] }) : createRealDataSource(),
   agentHost: sandbox.mode === "sandbox" ? "host.docker.internal" : undefined,
 });
 console.log(`Bridge listening on ${daemon.url}`);

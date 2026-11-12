@@ -15,6 +15,14 @@ export interface AgentToolContext {
   requestAccess(kind: string, detail: string, item: Omit<NewInboxItem, "agentId" | "projectId">): Promise<Answer>;
   /** Present only for a lead agent working on a feature: the planning tools. */
   lead?: LeadTools;
+  /** Present only for an Analyst agent: the host-side, read-only data tools. */
+  analyst?: AnalystTools;
+}
+
+/** The Analyst's two data tools. Each returns text for the agent: rows (already masked), or why nothing ran. */
+export interface AnalystTools {
+  listDatasets(): Promise<string>;
+  queryDataset(input: { connection: string; datasets: string[]; query: string }): Promise<string>;
 }
 
 /** The lead's two gate tools. Each returns text for the lead: an error to fix, or the user's verdict. */
@@ -73,6 +81,20 @@ function buildServer(ctx: AgentToolContext): McpServer {
         agents: z.array(z.object({ ticket: z.string().describe("Ticket number, e.g. 01"), shape: z.string(), color: z.string().describe("Hex colour, e.g. #0A84FF") })).optional(),
       },
     }, async (input) => text(await lead.submitTickets(input)));
+  }
+  const analyst = ctx.analyst;
+  if (analyst) {
+    server.registerTool("list_datasets", {
+      description: "Lists the databases the user has enabled for you and the tables or collections in each, with their column names. Returns names only, never data.",
+    }, async () => text(await analyst.listDatasets()));
+    server.registerTool("query_dataset", {
+      description: "Runs one read-only query on the user's database and returns the rows with names and identifiers masked. The user approves each dataset in the Bridge Inbox first; this blocks until they decide. Postgres: one plain SELECT. MongoDB: a JSON aggregation pipeline on one collection. Writes are impossible and refused.",
+      inputSchema: {
+        connection: z.string().describe("The connection's label from list_datasets"),
+        datasets: z.array(z.string()).describe("Every table or collection the query reads"),
+        query: z.string().describe("A SELECT statement, or for MongoDB a JSON array of aggregation stages"),
+      },
+    }, async (input) => text(await analyst.queryDataset(input)));
   }
   return server;
 }

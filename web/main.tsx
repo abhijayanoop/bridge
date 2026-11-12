@@ -4,6 +4,7 @@ import "./styles.css";
 import { AgentsScreen, type AgentInfo } from "./agents.tsx";
 import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
 import { PlanScreen } from "./plan.tsx";
+import { AnalystScreen } from "./analyst.tsx";
 import { ReviewScreen, type PullInfo, type ReviewInfo } from "./review.tsx";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { CommandPalette, isPaletteKey } from "./palette.tsx";
@@ -12,7 +13,7 @@ import { STATE_LABELS } from "../src/shared/avatar.ts";
 
 interface Project { id: string; name: string; path: string }
 
-const NAV = ["Board", "Agents", "Inbox", "Plan", "Review"];
+const NAV = ["Board", "Agents", "Inbox", "Plan", "Review", "Analyst"];
 
 function Icon({ d }: { d: string }) {
   return (
@@ -289,7 +290,7 @@ function App() {
         <TopBar inbox={inbox.open} project={project} section={section} limits={limits} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} onPalette={() => setPalette(true)} />
         <main className="flex-1 overflow-auto p-5">
           {adding && <NewProjectDialog onClose={() => setAdding(false)} onOpened={() => setSetupTick((n) => n + 1)} />}
-          {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : (
+          {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : section === "Analyst" ? <AnalystScreen projectId={project?.id} /> : (
             <div className="grid h-full place-items-center rounded-xl border border-dashed border-line text-fg-3">Nothing here yet.</div>
           )}
         </main>

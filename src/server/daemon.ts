@@ -1,20 +1,24 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, normalize, resolve } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentEvent, AgentRunner, AgentStatus } from "./agent-runner.ts";
 import { DEFAULT_WORKSPACE, openStore, type AgentRow, type Project } from "./db.ts";
 import { HOOK_STATUSES, activityForTool, ACTIVITIES, pickIdentity } from "../shared/avatar.ts";
 import { writeHookConfig, writeMcpConfig } from "./hooks.ts";
-import { handleAgentTools } from "./agent-tools.ts";
+import { handleAgentTools, type AgentToolContext } from "./agent-tools.ts";
+import { createConnections } from "./connections.ts";
+import { CONNECTION_KINDS, checkReadOnly, scrub, withoutValues, type ConnectionKind, type DataSource } from "./datasource.ts";
+import { maskRows } from "./masking.ts";
+import { roleSetupSteps, validIdentifier } from "./analyst-setup.ts";
 import { createInbox, type Answer } from "./inbox.ts";
 import { SCOPES, createApprovals, isMergeCommand, type NetworkRules } from "./approvals.ts";
 import { createWorkspaces, type Mode, type SkillSource, type Workspace } from "./workspace.ts";
 import type { GitHub } from "./github.ts";
 import { createPullRaiser } from "./pull-requests.ts";
 import { checkLook, createFeatures, leadTask, type Feature } from "./features.ts";
-import { QUICK_ACTIONS, quickActionTask, retroTask } from "./quick-actions.ts";
+import { QUICK_ACTIONS, analystTask, quickActionTask, retroTask } from "./quick-actions.ts";
 import { createReviewStage } from "./review-stage.ts";
 import type { Reviewer } from "./reviewer.ts";
 import { TRACKERS, isConfigured, isFreeTarget, newProjectSteps, runSetup, scaffoldProject, validProjectName, type Tracker } from "./setup.ts";
@@ -53,6 +57,8 @@ export interface DaemonOptions {
   reviewer?: Reviewer;
   /** How often open pull requests are checked on GitHub, in ms. Default 30 seconds; 0 turns polling off. */
   pullPollMs?: number;
+  /** Reads the user's real databases for the Analyst, on the host. Omitted means no driver: connections cannot be tested or queried. */
+  dataSource?: DataSource;
   /** Called after the UI confirmed quitting (POST /api/quit). Omitted means the request only answers; the process keeps running. */
   onQuit?: () => void;
 }
@@ -103,6 +109,12 @@ export async function startDaemon(opts: DaemonOptions) {
   const workspaces = createWorkspaces({ clonesDir: join(opts.dataDir, "clones"), skills: opts.skills });
 
   const approvals = createApprovals(store, opts.networkRules ?? { add: () => true, remove: () => {} });
+  const connections = createConnections(store, opts.dataDir);
+  const noDriver = async (): Promise<never> => { throw new Error("no database driver is available in this build"); };
+  const dataSource: DataSource = opts.dataSource ?? { datasets: noDriver, query: noDriver, writeAccess: noDriver };
+  /** Largest result an Analyst query returns. */
+  const ROW_LIMIT = 200;
+  const analystReady = (projectId: string) => connections.list(projectId).some((c) => c.enabled);
 
   /** Per-agent secret that lets an agent's hooks report status; never listed by the API. */
   const hookTokens = new Map<string, string>();
@@ -269,18 +281,21 @@ export async function startDaemon(opts: DaemonOptions) {
     limitsChanged();
   }
 
+  const analystDir = (agentId: string) => { const d = join(opts.dataDir, "analyst", agentId); mkdirSync(d, { recursive: true }); return d; };
+
   /** Creates the agent (and its clone, for a ticket) and starts it. */
-  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string): { code: number; body: unknown } => {
+  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string, analyst = false): { code: number; body: unknown } => {
     const projectId = project.id;
     const look = ticket ? features.list(projectId).find((f) => f.slug === ticket.feature)?.looks[ticket.key] : undefined;
-    const identity = look ?? pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
-    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead };
+    const identity = analyst ? { shape: "cloud" as const, color: "#FF9500" } : look ?? pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
+    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead, analyst };
     let workspace: Workspace | null = null;
     if (ticket) {
       try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
       catch (err) { return { code: 500, body: { error: `could not create clone: ${(err as Error).message}` } }; }
     }
-    const cwd = workspace?.path ?? project.path;
+    // The Analyst works in an empty folder of its own: it has no ticket and no reason to touch the repo.
+    const cwd = analyst ? analystDir(agent.id) : workspace?.path ?? project.path;
     const task = ticket ? taskFor(ticket) : leadPrompt;
     store.addAgent(agent);
     if (workspace) {
@@ -424,6 +439,63 @@ export async function startDaemon(opts: DaemonOptions) {
           input.workers ? `The lead suggests ${input.workers} worker${input.workers === 1 ? "" : "s"}.` : "",
           [{ k: "Tickets", v: list }, ...(input.workers ? [{ k: "Suggested workers", v: String(input.workers) }] : [])]);
         return ticketsVerdict(a);
+      },
+    };
+  }
+
+  /**
+   * The Analyst's data tools. Everything here runs on the host: the credential is read from its file only to hand
+   * to the data source, and any error text is scrubbed of it before the agent sees it. Each dataset needs the user's
+   * approval (once, or for the whole project) and results are masked unless that was switched off for the connection.
+   */
+  function analystTools(projectId: string, ask: AgentToolContext["requestAccess"]): NonNullable<AgentToolContext["analyst"]> {
+    return {
+      async listDatasets() {
+        const on = connections.list(projectId).filter((c) => c.enabled);
+        if (on.length === 0) return "No database connection is enabled for this project. Ask the user to enable one on the Analyst screen.";
+        const out: unknown[] = [];
+        for (const c of on) {
+          const secret = connections.secret(c.id) ?? "";
+          try { out.push({ connection: c.label, kind: c.kind, namesMasked: c.maskingOn, datasets: await dataSource.datasets(c.kind, secret) }); }
+          catch (e) { out.push({ connection: c.label, error: `could not read this database: ${scrub((e as Error).message, secret)}` }); }
+        }
+        return JSON.stringify(out, null, 2);
+      },
+      async queryDataset({ connection, datasets, query }) {
+        const c = connections.find(projectId, connection);
+        if (!c) return `Refused: there is no connection named ${connection}. Call list_datasets.`;
+        if (!c.enabled) return `Refused: connection ${c.label} is not enabled. Ask the user to enable it on the Analyst screen.`;
+        const checked = checkReadOnly(c.kind, datasets, query, c.maskingOn);
+        if (!checked.ok) return `Refused: ${checked.reason}.`;
+        const secret = connections.secret(c.id);
+        if (!secret) return `Refused: connection ${c.label} has no stored credential. Ask the user to add it again.`;
+        for (const d of [...new Set(datasets)]) {
+          const detail = `${c.label}/${d}`;
+          const a = await ask("database", detail, {
+            kind: "access", access: "database", detail, what: `Read ${detail} (read-only)`, why: "",
+            facts: [
+              { k: "Database", v: `${c.label} · read-only role` },
+              { k: "Dataset", v: d },
+              { k: "Names and identifiers", v: c.maskingOn ? "masked" : "NOT masked (turned off for this connection)" },
+              { k: "Query", v: query },
+            ],
+          });
+          if (a.decision === "deny") return `Denied: read ${detail}${a.reply ? `. Reason: ${a.reply}` : ""}. Nothing was run.`;
+          if (a.decision === "reply") return `The user replied: ${a.reply ?? ""}. Nothing was run.`;
+        }
+        // The user may have switched it off, or changed masking, while the request was open.
+        const now = connections.get(c.id);
+        if (!now?.enabled) return `Refused: connection ${c.label} is not enabled any more.`;
+        let rows;
+        try { rows = await dataSource.query(c.kind, secret, { datasets, query: checked.query, limit: ROW_LIMIT + 1 }); }
+        catch (e) {
+          // With masking on, quoted values are cut out too: database errors echo the row data that caused them.
+          const msg = scrub((e as Error).message, secret);
+          return `Query failed: ${now.maskingOn ? withoutValues(msg) : msg}`;
+        }
+        const truncated = rows.length > ROW_LIMIT;
+        const shown = truncated ? rows.slice(0, ROW_LIMIT) : rows;
+        return JSON.stringify({ masked: now.maskingOn, truncated, rows: now.maskingOn ? maskRows(shown) : shown });
       },
     };
   }
@@ -614,6 +686,79 @@ export async function startDaemon(opts: DaemonOptions) {
       const r = spawn(project, a.label, undefined, false, quickActionTask(a, typeof context === "string" ? context : ""));
       return send(res, r.code, r.body);
     }
+    const cm = path.match(/^\/api\/projects\/([^/]+)\/connections$/);
+    if (cm) {
+      const project = store.projects().find((p) => p.id === cm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      if (method === "GET") return send(res, 200, { connections: connections.list(project.id), analystReady: analystReady(project.id) });
+      if (method === "POST") {
+        const { kind, label, connectionString } = await readJson(req);
+        if (!(CONNECTION_KINDS as readonly string[]).includes(kind)) return send(res, 400, { error: "kind must be postgres or mongodb" });
+        if (typeof label !== "string" || !label.trim() || label.trim().length > 40) return send(res, 400, { error: "give the connection a short name" });
+        const urlStart = kind === "postgres" ? /^postgres(ql)?:\/\//i : /^mongodb(\+srv)?:\/\//i;
+        if (typeof connectionString !== "string" || !urlStart.test(connectionString.trim())) return send(res, 400, { error: `the connection string must start with ${kind === "postgres" ? "postgres://" : "mongodb:// or mongodb+srv://"}` });
+        if (connections.find(project.id, label.trim())) return send(res, 409, { error: "a connection with that name already exists" });
+        const secret = connectionString.trim();
+        try { await dataSource.datasets(kind as ConnectionKind, secret); }
+        catch (e) { return send(res, 400, { error: `could not connect: ${scrub((e as Error).message, secret)}` }); }
+        // The pasted role must really be read-only, whatever the wizard said.
+        let writable: string | null = null;
+        try { writable = await dataSource.writeAccess(kind as ConnectionKind, secret); }
+        catch (e) { writable = `could not check what the role may do (${scrub((e as Error).message, secret)})`; }
+        if (writable) return send(res, 400, { error: `That role is not read-only: ${writable}. Run the setup steps again and paste the new connection string.` });
+        // Off until the user turns it on, with masking on.
+        const c = { id: randomUUID(), projectId: project.id, kind: kind as ConnectionKind, label: label.trim(), enabled: false, maskingOn: true, createdAt: Date.now() };
+        connections.add(c, secret);
+        broadcast({ type: "connections", projectId: project.id });
+        return send(res, 201, c);
+      }
+    }
+    const rs = path.match(/^\/api\/projects\/([^/]+)\/connections\/role-setup$/);
+    if (rs && method === "POST") {
+      if (!store.projects().some((p) => p.id === rs[1])) return send(res, 404, { error: "unknown project" });
+      const { kind, database, role, tables } = await readJson(req);
+      if (!(CONNECTION_KINDS as readonly string[]).includes(kind)) return send(res, 400, { error: "kind must be postgres or mongodb" });
+      if (!validIdentifier(database) || !validIdentifier(role)) return send(res, 400, { error: "database and role must be plain names: letters, digits and underscores" });
+      if (tables !== undefined && (!Array.isArray(tables) || !tables.every(validIdentifier))) return send(res, 400, { error: "tables must be plain table names" });
+      // A preview only. The user runs these steps themselves; Bridge never holds admin credentials.
+      return send(res, 200, { steps: roleSetupSteps({ kind, database, role, tables }) });
+    }
+    const cx = path.match(/^\/api\/connections\/([^/]+)$/);
+    if (cx) {
+      const c = connections.get(cx[1]!);
+      if (!c) return send(res, 404, { error: "unknown connection" });
+      if (method === "DELETE") {
+        connections.remove(c.id);
+        broadcast({ type: "connections", projectId: c.projectId });
+        return send(res, 200, { ok: true });
+      }
+      if (method === "POST") {
+        const { enabled, maskingOn } = await readJson(req);
+        if ((enabled !== undefined && typeof enabled !== "boolean") || (maskingOn !== undefined && typeof maskingOn !== "boolean")) return send(res, 400, { error: "enabled and maskingOn must be true or false" });
+        const next = { ...c, enabled: enabled ?? c.enabled, maskingOn: maskingOn ?? c.maskingOn };
+        connections.update(next);
+        broadcast({ type: "connections", projectId: c.projectId });
+        return send(res, 200, next);
+      }
+    }
+    const an = path.match(/^\/api\/projects\/([^/]+)\/analyst$/);
+    if (an) {
+      const project = store.projects().find((p) => p.id === an[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      const live = store.agents().find((a) => a.projectId === project.id && a.analyst && a.status !== "done");
+      if (method === "GET") return send(res, 200, { ready: analystReady(project.id), running: live?.id ?? null });
+      if (method === "POST") {
+        if (!analystReady(project.id)) return send(res, 409, { error: "The Analyst is off. Enable a database connection on the Analyst screen first." });
+        if (live) return send(res, 409, { error: "An Analyst is already running for this project" });
+        const { question } = await readJson(req);
+        const ask = typeof question === "string" ? question : "";
+        const r = spawn(project, "Analyst", undefined, false, analystTask(ask), true);
+        if (r.code === 201) store.setSetting(`analystAsk:${(r.body as { id: string }).id}`, ask);
+        return send(res, r.code, mode === "local" && r.code === 201
+          ? { ...(r.body as object), warning: "Local mode has no sandbox, so this Analyst shares your computer. Prefer running Bridge with Docker Sandboxes for real data." }
+          : r.body);
+      }
+    }
     if (path === "/api/inbox" && method === "GET") return send(res, 200, { items: inbox.list(), open: inbox.open() });
     const im = path.match(/^\/api\/inbox\/([^/]+)\/resolve$/);
     if (im && method === "POST") {
@@ -646,6 +791,7 @@ export async function startDaemon(opts: DaemonOptions) {
       pulls.forget(a.id);
       agentBranch.delete(a.id); announced.delete(a.id); agentCwd.delete(a.id); agentBase.delete(a.id);
       store.deleteSetting(`agentRun:${a.id}`);
+      store.deleteSetting(`analystAsk:${a.id}`);
       hookTokens.delete(a.id);
       store.deleteAgent(a.id);
       try { workspaces.remove(a.id); } catch { /* clone already gone */ }
@@ -736,7 +882,19 @@ export async function startDaemon(opts: DaemonOptions) {
         broadcast({ type: "agent", agent: store.agent(id) });
         broadcast({ type: "agent-event", agentId: id, eventId, event: ev });
       };
+      const raise: AgentToolContext["raise"] = async (item) => {
+        const { answer } = inbox.raise({ ...item, agentId: id, projectId: agent.projectId, ticketKey: agent.ticketKey });
+        setStatus("blocked");
+        const a = await answer;
+        if (store.agent(id)?.status === "blocked") setStatus("working");
+        return a;
+      };
+      const requestAccess: AgentToolContext["requestAccess"] = async (kind, detail, item) => {
+        if (approvals.covering(agent.projectId, agent.ticketKey ?? null, kind, detail)) return { decision: "approve" };
+        return raise(item);
+      };
       handleAgentTools({
+        analyst: agent.analyst ? analystTools(agent.projectId, requestAccess) : undefined,
         ticket: () => {
           const t = project && agent.ticketId ? readTickets(project.path, project.id).find((x) => x.id === agent.ticketId) : undefined;
           if (!t || !project) return null;
@@ -746,17 +904,8 @@ export async function startDaemon(opts: DaemonOptions) {
         },
         lead: leadTools(id),
         setStatus: (s) => { if (store.agent(id)?.status !== "done") { setStatus(s); if (s === "done") onDone(id); } },
-        async requestAccess(kind, detail, item) {
-          if (approvals.covering(agent.projectId, agent.ticketKey ?? null, kind, detail)) return { decision: "approve" };
-          return this.raise(item);
-        },
-        async raise(item) {
-          const { answer } = inbox.raise({ ...item, agentId: id, projectId: agent.projectId, ticketKey: agent.ticketKey });
-          setStatus("blocked");
-          const a = await answer;
-          if (store.agent(id)?.status === "blocked") setStatus("working");
-          return a;
-        },
+        requestAccess,
+        raise,
       }, req, res).catch(() => { if (!res.headersSent) send(res, 500, { error: "internal error" }); });
       return;
     }
@@ -801,7 +950,11 @@ export async function startDaemon(opts: DaemonOptions) {
     let task: string | undefined;
     let env: Record<string, string> | undefined;
     let isolated = false;
-    if (a.lead) {
+    if (a.analyst) {
+      if (!analystReady(a.projectId)) { finishInterrupted(a, "no database connection is enabled any more"); continue; }
+      cwd = analystDir(a.id);
+      task = `${analystTask(store.setting(`analystAsk:${a.id}`) ?? "")} Bridge was restarted and interrupted you. Continue your analysis; call list_datasets again first.`;
+    } else if (a.lead) {
       const f = store.features().find((x) => x.leadAgentId === a.id);
       if (!f || f.stage === "build") { finishInterrupted(a, "its planning is finished"); continue; }
       // A gate's Inbox item survives the restart; calling submit_spec or submit_tickets again waits on that same item.

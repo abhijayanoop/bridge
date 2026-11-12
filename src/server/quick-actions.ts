@@ -32,3 +32,16 @@ export function retroTask(f: { description: string; slug: string }): string {
     `Never merge: the user merges.`,
   ].join(" ");
 }
+
+/** The first prompt for the Analyst: read-only analysis of real data through the host-side Bridge tools only. */
+export function analystTask(context: string): string {
+  const ctx = oneLine(context);
+  return [
+    `You are the Bridge Analyst. Analyse the user's real data, read-only.`,
+    ctx ? `The user asks: ${ctx}.` : `Ask the user with ask_user what they want to know.`,
+    `Call list_datasets to see which databases and tables you may use, then query_dataset to read them: it needs the user's approval for each dataset and returns names and identifiers masked.`,
+    `Use only those tools for data: never run a database client or script, never look for connection strings or credentials, and never read files under .bridge or its secrets folder.`,
+    `Report findings as analysis (counts, trends, patterns); never try to work out who a masked person is.`,
+    `Use the Bridge tools: set_my_status to "working" when you start and "done" when finished.`,
+  ].join(" ");
+}

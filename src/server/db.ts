@@ -5,11 +5,12 @@ import type { AgentEvent, AgentStatus } from "./agent-runner.ts";
 import { avatarState, type AvatarState } from "../shared/avatar.ts";
 import type { Finding } from "./reviewer.ts";
 import type { Feature } from "./features.ts";
+import type { Connection } from "./connections.ts";
 
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
-export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; activity?: string | null; avatarState?: AvatarState }
+export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; analyst?: boolean; activity?: string | null; avatarState?: AvatarState }
 export type InboxKind = "question" | "access" | "plan" | "merge" | "retro";
 export interface InboxItem {
   id: string; agentId: string; projectId: string; kind: InboxKind;
@@ -65,19 +66,20 @@ export function openStore(dataDir: string) {
     CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS features (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS approvals (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, json TEXT NOT NULL, seq INTEGER NOT NULL);
   `);
   // Migrate databases created before workspaces existed.
   if (!(db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).some((c) => c.name === "workspace_id")) {
     db.exec(`ALTER TABLE projects ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE}'`);
   }
   const agentCols = (db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]).map((c) => c.name);
-  for (const c of ["ticket_id", "ticket_key", "ticket_title", "shape", "color", "lead", "activity"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
+  for (const c of ["ticket_id", "ticket_key", "ticket_title", "shape", "color", "lead", "analyst", "activity"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
   db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES (?, ?)").run(DEFAULT_WORKSPACE, "Default");
   const listProjects = () =>
     db.prepare("SELECT id, name, path, workspace_id AS workspaceId FROM projects ORDER BY rowid").all() as unknown as Project[];
   const listAgents = (): AgentRow[] => {
-    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead"> & { lead: number | string | null })[];
-    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, avatarState: avatarState(r.status, r.activity) }));
+    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, analyst, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead" | "analyst"> & { lead: number | string | null; analyst: number | string | null })[];
+    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, analyst: Number(r.analyst) === 1, avatarState: avatarState(r.status, r.activity) }));
   };
   return {
     addProject(p: Omit<Project, "workspaceId"> & { workspaceId?: string }) {
@@ -108,8 +110,8 @@ export function openStore(dataDir: string) {
       db.prepare("DELETE FROM settings WHERE key = ?").run(key);
     },
     addAgent(a: AgentRow) {
-      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.activity ?? null);
+      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, analyst, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.analyst ? 1 : 0, a.activity ?? null);
     },
     /** Sets the status; activity is kept only while working. */
     setStatus(id: string, status: AgentStatus, activity?: string | null) {
@@ -159,6 +161,20 @@ export function openStore(dataDir: string) {
     },
     updateApproval(a: Approval) {
       db.prepare("UPDATE approvals SET json = ? WHERE id = ?").run(JSON.stringify(a), a.id);
+    },
+    addConnection(c: Connection) {
+      db.prepare("INSERT INTO connections (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM connections))").run(c.id, JSON.stringify(c));
+    },
+    updateConnection(c: Connection) {
+      db.prepare("UPDATE connections SET json = ? WHERE id = ?").run(JSON.stringify(c), c.id);
+    },
+    deleteConnection(id: string) {
+      db.prepare("DELETE FROM connections WHERE id = ?").run(id);
+    },
+    /** Oldest first. */
+    connections(): Connection[] {
+      const rows = db.prepare("SELECT json FROM connections ORDER BY seq").all() as unknown as { json: string }[];
+      return rows.map((r) => JSON.parse(r.json) as Connection);
     },
     addPull(p: Pull) {
       db.prepare("INSERT INTO pulls (id, json, seq) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM pulls))").run(p.id, JSON.stringify(p));
