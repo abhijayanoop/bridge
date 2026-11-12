@@ -16,6 +16,16 @@ interface Project { id: string; name: string; path: string }
 
 const NAV = ["Board", "Agents", "Inbox", "Plan", "Review", "Analyst"];
 
+// Icon paths from the design canvas (Sidebar.dc.html); Analyst reuses its sliders glyph.
+const NAV_ICONS: Record<string, string> = {
+  Board: "M6 4h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM9.5 4v16M14.5 4v16",
+  Agents: "M9 5h6a5 5 0 0 1 5 5v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-4a5 5 0 0 1 5-5zM9.5 10.5l-1 2.4M14 10.5l.6 2.4",
+  Inbox: "M3 13l2.4-7.2A2.5 2.5 0 0 1 7.8 4h8.4a2.5 2.5 0 0 1 2.4 1.8L21 13v4.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5zM3 13h5l1.5 2.5h5L16 13h5",
+  Plan: "M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM14 3v5h5M9 13h6M9 17h4",
+  Review: "M6 3.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM18 15.8a2.2 2.2 0 1 1 0 4.4a2.2 2.2 0 1 1 0-4.4zM6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4M13 5l-2 2 2 2",
+  Analyst: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5a2 2 0 1 1 0 4a2 2 0 1 1 0-4zM9 15a2 2 0 1 1 0 4a2 2 0 1 1 0-4z",
+};
+
 function Icon({ d }: { d: string }) {
   return (
     <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" className="flex-none fill-none stroke-current" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -70,7 +80,7 @@ function Sidebar({ project, projects, section, onSelect, onSwitch, onAdd, lead, 
       {NAV.map((n) => (
         <button key={n} type="button" aria-current={n === section ? "page" : undefined} onClick={() => onSelect(n)}
           className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left font-medium ${n === section ? "bg-surface-2 text-fg" : "text-fg-2 hover:bg-surface"}`}>
-          <Icon d="M4 6h16M4 12h16M4 18h16" />
+          <Icon d={NAV_ICONS[n]!} />
           <span className="flex-1">{n}</span>
           {n === "Inbox" && <CountBadge n={inbox} />}
         </button>

@@ -43,6 +43,10 @@ See [docs/testing.md](docs/testing.md). Manual checks for the real CLI, sandbox 
 - [Threat model](docs/threat-model.md)
 - [Credits and licences](docs/credits.md)
 
+## Licence
+
+MIT, see [LICENSE](LICENSE).
+
 ## Credits
 
 - jsm-hq by JS Mastery (MIT): reference for the sandbox and approval ideas.
