@@ -198,3 +198,110 @@ describe("worker cap and queue via the public API", () => {
     expect((await limits()).queued).toEqual([]);
   });
 });
+
+describe("auto-dispatch via the public API", () => {
+  it("defaults to off and round-trips through the API", async () => {
+    const { project, call, post } = await boot();
+    expect((await call("GET", `/api/projects/${project.id}/auto-dispatch`)).json).toEqual({ on: false });
+    const set = await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    expect(set.json).toEqual({ on: true });
+    expect((await call("GET", `/api/projects/${project.id}/auto-dispatch`)).json).toEqual({ on: true });
+  });
+
+  it("starts every ready, unblocked ticket on its own, with no call to the manual start endpoint; the rest queue at the cap", async () => {
+    const { project, post, specs, limits } = await boot(); // tickets 01, 02, 03 all ready-for-agent, unblocked
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(2);
+    expect(specs.map((s) => s.task)).toEqual([expect.stringContaining("ticket 01"), expect.stringContaining("ticket 02")]);
+    const l = await limits();
+    expect(l.running).toBe(2);
+    expect(l.queued.map((q: any) => q.ticketKey)).toEqual(["03"]);
+  });
+
+  it("never double-starts a ticket that is already running or already queued", async () => {
+    const { project, post, start, specs, limits } = await boot({ tickets: { "01-a": ticketFile("01"), "02-b": ticketFile("02") } });
+    await post("/api/limits", { cap: 1 });
+    const a = (await start("f/01")).json; // already running by hand
+    expect((await start("f/02")).status).toBe(202); // already queued by hand
+    expect(specs).toHaveLength(1);
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    // Neither ticket gets a second entry: 01 stays the sole running worker, 02 the sole queued one.
+    expect(specs.filter((s) => s.task?.includes("ticket 01"))).toHaveLength(1);
+    expect((await limits()).queued.filter((q: any) => q.ticketKey === "02")).toHaveLength(1);
+    await post(`/api/agents/${a.id}/stop`, {});
+    await expect.poll(() => specs.length).toBe(2);
+    expect(specs.filter((s) => s.task?.includes("ticket 02"))).toHaveLength(1);
+  });
+
+  it("pauses auto-dispatch while the plan's rate limit is active, and resumes once it lifts", async () => {
+    const { project, post, specs, emitters, limits } = await boot(); // tickets 01, 02, 03
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(2);
+    const a = specs[0]!;
+    emitters.get(a.id)!({ type: "output", data: "Claude usage limit reached. Your limit will reset at 3pm" });
+    await expect.poll(async () => (await limits()).rateLimited).toMatchObject({ agentId: a.id });
+    // Ticket 01 is done and its worker's slot frees, but the pause still holds: 03 is not auto-started.
+    await post(`/api/projects/${project.id}/tickets/status`, { ticket: "f/01", column: "done" });
+    await post(`/api/agents/${a.id}/stop`, {});
+    expect(specs).toHaveLength(2);
+    expect((await limits()).queued.map((q: any) => q.ticketKey)).toEqual(["03"]);
+    await post("/api/limits/resume", {});
+    await expect.poll(() => specs.length).toBe(3);
+    expect(specs[2]!.task).toContain("ticket 03");
+  });
+
+  it("leaves a ticket whose auto-start attempt fails for a human, without retrying it automatically", async () => {
+    const { dir, repo, project, post, specs, limits } = await boot({ tickets: { "01-a": ticketFile("01") } });
+    const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: repo });
+    git("init", "-b", "main"); git("add", "-A"); git("commit", "-m", "init");
+    // Make every clone fail: the clones directory is replaced by a plain file.
+    rmSync(join(dir, "data", "clones"), { recursive: true, force: true });
+    writeFileSync(join(dir, "data", "clones"), "in the way");
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(async () => (await limits()).queued[0]?.error).toMatch(/clone/);
+    expect(specs).toHaveLength(0);
+    // Re-evaluating readiness again (a cap change re-triggers drain) does not retry it.
+    await post("/api/limits", { cap: 2 });
+    expect(specs).toHaveLength(0);
+    expect((await limits()).queued).toHaveLength(1);
+  });
+
+  it("auto-starts a dependent the moment its blocker is merged, with no other trigger", async () => {
+    const tickets = { "01-a": ticketFile("01"), "02-b": ticketFile("02", "ready-for-agent", "01") };
+    const { project, post, specs } = await boot({ tickets });
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(1);
+    expect(specs[0]!.task).toContain("ticket 01");
+    await post(`/api/projects/${project.id}/tickets/status`, { ticket: "f/01", column: "done" });
+    await expect.poll(() => specs.length).toBe(2);
+    expect(specs[1]!.task).toContain("ticket 02");
+  });
+
+  it("does not let a ticket running in one project block the same-named ticket in another project", async () => {
+    const { dir, post, start, specs, project: projectA } = await boot({ tickets: { "01-a": ticketFile("01") } });
+    await start("f/01"); // running in project A
+    expect(specs).toHaveLength(1);
+
+    const repoB = join(dir, "repoB");
+    mkdirSync(join(repoB, ".scratch", "f", "issues"), { recursive: true });
+    writeFileSync(join(repoB, ".scratch", "f", "issues", "01-a.md"), ticketFile("01")); // same feature/ticket id as A's
+    const projectB = (await post("/api/projects", { name: "demoB", path: repoB })).json;
+    expect(projectB.id).not.toBe(projectA.id);
+
+    await post(`/api/projects/${projectB.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(2);
+    expect(specs[1]!.projectId).toBe(projectB.id);
+  });
+
+  it("turning auto-dispatch off stops further automatic starts; the ticket can still be started manually", async () => {
+    const tickets = { "01-a": ticketFile("01"), "02-b": ticketFile("02", "ready-for-agent", "01") };
+    const { project, post, start, specs } = await boot({ tickets });
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(1); // only 01: 02 is still blocked
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: false });
+    await post(`/api/projects/${project.id}/tickets/status`, { ticket: "f/01", column: "done" }); // unblocks 02
+    expect(specs).toHaveLength(1); // not auto-started: the dispatcher is off
+    expect((await start("f/02")).status).toBe(201); // manual start still works
+    expect(specs).toHaveLength(2);
+  });
+});

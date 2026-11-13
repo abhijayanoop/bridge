@@ -172,6 +172,30 @@ describe("restart and resume via the public API", () => {
     expect(events.some((e: any) => e.event.type === "output" && /could not be stopped/i.test(e.event.data))).toBe(true);
   });
 
+  it("re-evaluates readiness on restart: a ticket that became ready while Bridge was off auto-starts after the restart, with auto-dispatch already on", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bridge-resume-auto-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const repo = join(dir, "repo");
+    const ticketPath = join(repo, ".scratch", "f", "issues", "01-t.md");
+    mkdirSync(join(repo, ".scratch", "f", "issues"), { recursive: true });
+    const notYet = "# 01: Ticket 01\n\n**Blocked by:**\n\n**Status:** needs-triage\n";
+    const ready = "# 01: Ticket 01\n\n**Blocked by:**\n\n**Status:** ready-for-agent\n";
+    writeFileSync(ticketPath, notYet);
+    const w = { dataDir: join(dir, "data"), repo };
+
+    const first = await launch(w);
+    await first.call("POST", `/api/projects/${first.project.id}/auto-dispatch`, { on: true });
+    expect(first.specs).toHaveLength(0); // not triaged yet: auto-dispatch leaves it alone
+    await first.daemon.close();
+
+    // Triaged to ready-for-agent while Bridge was off; nothing could have told a running daemon.
+    writeFileSync(ticketPath, ready);
+    const second = await launch(w);
+    await expect.poll(() => second.specs.length).toBe(1);
+    expect(second.specs[0]!.task).toContain("ticket 01");
+    expect((await second.call("GET", `/api/projects/${second.project.id}/auto-dispatch`)).json).toEqual({ on: true });
+  });
+
   it("reuses the ticket's clone and branch when resuming", async () => {
     const w = world(true);
     const first = await launch(w);

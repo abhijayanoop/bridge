@@ -164,6 +164,14 @@ describe("lead pipeline through the public API", () => {
     expect(specs.filter((s) => s.task?.includes("Work on ticket"))).toHaveLength(0);
   });
 
+  it("does not auto-start a ticket held by an unapproved feature gate", async () => {
+    const { startFeature, writeTicket, post, project, specs } = await boot();
+    const f = await startFeature();
+    writeTicket(f.json.slug, "01", "First"); // written during the grill stage: not yet gated through
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    expect(specs.filter((s) => s.task?.includes("Work on ticket"))).toHaveLength(0);
+  });
+
   it("records the suggested worker count and the shape and colour the lead picked for each agent", async () => {
     const { startFeature, writeSpec, writeTicket, nextOpen, resolve, post, project, get, specs } = await boot();
     const f = await startFeature();

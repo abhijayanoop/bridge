@@ -252,6 +252,8 @@ export async function startDaemon(opts: DaemonOptions) {
   let rateLimit: { since: number; agentId: string } | null = null;
   /** A ticket of a feature whose spec or ticket breakdown the user has not approved yet is never started. */
   const held = (projectId: string, ticket: Ticket) => features.holding(projectId, ticket);
+  /** Per-project toggle: off by default. On, Bridge starts ready tickets itself instead of waiting for a Start click. */
+  const autoDispatchOn = (projectId: string) => store.setting(`autoDispatch:${projectId}`) === "1";
   const ticketOf = (q: Queued) => {
     const project = store.projects().find((p) => p.id === q.projectId);
     return { project, ticket: project ? readTickets(project.path, project.id).find((t) => t.id === q.ticketId) : undefined };
@@ -266,9 +268,29 @@ export async function startDaemon(opts: DaemonOptions) {
     if (!closing) store.setSetting("queue", JSON.stringify(queue));
     broadcast({ type: "limits", limits: limitsView() });
   };
+  /** True while a ticket already has a worker on it, in this project: started, still under review, or already in the queue. Ticket ids are unique only within a project, so projectId is part of the check. */
+  const dispatched = (projectId: string, ticketId: string) =>
+    store.agents().some((a) => a.projectId === projectId && a.ticketId === ticketId && (a.status !== "done" || reviewStage.busy(a.id))) ||
+    queue.some((q) => q.projectId === projectId && q.ticketId === ticketId);
+  const toQueued = (project: Project, ticket: Ticket, name: string): Queued =>
+    ({ id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title });
+  /**
+   * Queues every ready, unblocked ticket of a project with auto-dispatch on, exactly as a manual Start click would.
+   * Idempotent: a ticket already dispatched (running, queued, or queued-with-error from a failed attempt) is skipped.
+   */
+  function autoEnqueue() {
+    for (const project of store.projects()) {
+      if (!autoDispatchOn(project.id)) continue;
+      for (const ticket of readTickets(project.path, project.id)) {
+        if (ticket.status !== "ready-for-agent" || ticket.blocked || held(project.id, ticket) || dispatched(project.id, ticket.id)) continue;
+        queue.push(toQueued(project, ticket, ticket.title));
+      }
+    }
+  }
   /** Starts queued tickets, oldest first, while there is a free slot, no rate limit and no unmet blocker. */
   function drain() {
     offerRetros();
+    autoEnqueue();
     for (let i = 0; i < queue.length && !rateLimit && running() < cap();) {
       const q = queue[i]!;
       const { project, ticket } = ticketOf(q);
@@ -606,6 +628,19 @@ export async function startDaemon(opts: DaemonOptions) {
         return send(res, 200, { ...view(), written });
       }
     }
+    const adm = path.match(/^\/api\/projects\/([^/]+)\/auto-dispatch$/);
+    if (adm) {
+      const project = store.projects().find((p) => p.id === adm[1]);
+      if (!project) return send(res, 404, { error: "unknown project" });
+      if (method === "GET") return send(res, 200, { on: autoDispatchOn(project.id) });
+      if (method === "POST") {
+        const { on } = await readJson(req);
+        if (typeof on !== "boolean") return send(res, 400, { error: "on must be true or false" });
+        store.setSetting(`autoDispatch:${project.id}`, on ? "1" : "0");
+        drain();
+        return send(res, 200, { on });
+      }
+    }
     const pm = path.match(/^\/api\/projects\/([^/]+)\/(select|tickets)$/);
     if (pm) {
       const project = store.projects().find((p) => p.id === pm[1]);
@@ -645,7 +680,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const hold = ticket && !lead ? held(project.id, ticket) : undefined;
       if (ticket && hold) return send(res, 409, { error: `Not started: ${features.holdReason(hold)}. Approve it in the Inbox first.` });
       if (ticket && !lead && (rateLimit || running() >= cap() || ticket.blocked)) {
-        const entry: Queued = { id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title };
+        const entry = toQueued(project, ticket, name);
         queue.push(entry);
         limitsChanged();
         return send(res, 202, { queued: true, id: entry.id, position: queue.length });
