@@ -6,11 +6,16 @@ import "@xterm/xterm/css/xterm.css";
 import { AgentAvatar, ThinkingOrb } from "./avatar.tsx";
 import { STATE_LABELS } from "../src/shared/avatar.ts";
 
-export interface AgentInfo { id: string; name: string; status: string; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; avatarState?: string }
+export interface AgentInfo { id: string; name: string; status: string; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; auto?: boolean; avatarState?: string }
 interface TicketOpt { id: string; key: string; title: string; column: string }
 
 const wsUrl = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 const LIVE = (s: string) => s === "working" || s === "waiting" || s === "blocked";
+
+/** Marks an agent the dispatcher started by itself, so it can be told from one started by a click. */
+export function AutoChip() {
+  return <span title="Started automatically by auto-dispatch" className="inline-flex h-[18px] flex-none items-center rounded border border-line px-1.5 text-[10px] font-semibold uppercase tracking-wide text-fg-2">Auto</span>;
+}
 
 /** Terminal for one agent: replays stored output, then streams live; keystrokes go back over the socket. */
 function TerminalDrawer({ agent, onClose }: { agent: AgentInfo; onClose: () => void }) {
@@ -69,7 +74,7 @@ function TerminalDrawer({ agent, onClose }: { agent: AgentInfo; onClose: () => v
     <aside aria-label={`Terminal for ${agent.name}`} className="flex h-full min-h-[420px] min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-line bg-bg">
       <header className="flex items-center gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm font-semibold">{agent.name}</span>
+          <span className="flex items-center gap-2 text-sm font-semibold">{agent.name}{agent.auto && <AutoChip />}</span>
           <span className="truncate text-xs text-fg-3">{agent.ticketKey ? `${agent.ticketKey} · ${agent.ticketTitle ?? ""}` : "No ticket"} · {status}</span>
         </div>
         <button type="button" onClick={stop} disabled={!LIVE(status) && status !== "idle"} className="h-8 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium hover:bg-surface-2 disabled:opacity-40">Stop</button>
@@ -126,6 +131,7 @@ export function AgentsScreen({ projectId, agents, pulls = [] }: { projectId?: st
               <button type="button" onClick={() => setOpenId(a.id)} aria-pressed={a.id === openId} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-surface-2">
                 <AgentAvatar shape={a.shape ?? "circle"} color={a.color ?? "#0A84FF"} state={a.avatarState ?? "idle"} size={40} lead={a.lead} name={a.name} />
                 <span className="font-semibold">{a.name}</span>
+                {a.auto && <AutoChip />}
                 <span className="min-w-0 flex-1 truncate text-xs text-fg-2">{a.ticketKey ? `${a.ticketKey} · ${a.ticketTitle ?? ""}` : "no ticket"}</span>
                 <ThinkingOrb state={a.avatarState ?? "idle"} color={a.color ?? "#0A84FF"} size={32} />
                 <span className="w-28 flex-none text-right text-xs text-fg-2">{STATE_LABELS[(a.avatarState ?? "idle") as keyof typeof STATE_LABELS] ?? a.status}</span>

@@ -8,8 +8,8 @@
 
 Parent: .scratch/auto-dispatch-loop/spec.md
 
-- [ ] A toggle next to the worker cap in the top bar turns auto-dispatch on and off for the active project
-- [ ] The toggle shows the project's current setting on load and after a reload
-- [ ] Switching between projects shows each project's own toggle state, independent of the others
-- [ ] An agent started by the dispatcher is visibly distinguished from a manually started one, on its card and in its terminal
-- [ ] Covered by a test asserting the setting round-trips through the toggle and the provenance marker appears on an auto-started agent
+- [x] A toggle next to the worker cap in the top bar turns auto-dispatch on and off for the active project
+- [x] The toggle shows the project's current setting on load and after a reload
+- [x] Switching between projects shows each project's own toggle state, independent of the others
+- [x] An agent started by the dispatcher is visibly distinguished from a manually started one, on its card and in its terminal
+- [x] Covered by a test asserting the setting round-trips through the toggle and the provenance marker appears on an auto-started agent

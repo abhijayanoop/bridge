@@ -305,3 +305,48 @@ describe("auto-dispatch via the public API", () => {
     expect(specs).toHaveLength(2);
   });
 });
+
+describe("auto-dispatch toggle and provenance", () => {
+  const terminalText = async (call: (m: string, p: string) => Promise<{ json: any }>, agentId: string) =>
+    ((await call("GET", `/api/agents/${agentId}/events`)).json as { event: { type: string; data?: string } }[])
+      .filter((e) => e.event.type === "output").map((e) => e.event.data).join("");
+
+  it("keeps each project's own toggle state, independent of the others", async () => {
+    const { dir, project: a, call, post } = await boot();
+    const repoB = join(dir, "repoB");
+    mkdirSync(join(repoB, ".scratch", "f", "issues"), { recursive: true });
+    const b = (await post("/api/projects", { name: "demoB", path: repoB })).json;
+    await post(`/api/projects/${a.id}/auto-dispatch`, { on: true });
+    expect((await call("GET", `/api/projects/${a.id}/auto-dispatch`)).json).toEqual({ on: true });
+    expect((await call("GET", `/api/projects/${b.id}/auto-dispatch`)).json).toEqual({ on: false });
+    await post(`/api/projects/${a.id}/auto-dispatch`, { on: false });
+    await post(`/api/projects/${b.id}/auto-dispatch`, { on: true });
+    expect((await call("GET", `/api/projects/${a.id}/auto-dispatch`)).json).toEqual({ on: false });
+    expect((await call("GET", `/api/projects/${b.id}/auto-dispatch`)).json).toEqual({ on: true });
+  });
+
+  it("marks an auto-started agent, on its row and in its terminal, but not a manual one", async () => {
+    const { project, call, post, start, specs } = await boot({ tickets: { "01-a": ticketFile("01"), "02-b": ticketFile("02", "in-progress") } });
+    const manual = (await start("f/02")).json;
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    await expect.poll(() => specs.length).toBe(2);
+    const agents = (await call("GET", "/api/agents")).json as any[];
+    const auto = agents.find((x) => x.ticketKey === "01")!;
+    expect(auto.auto).toBe(true);
+    expect(agents.find((x) => x.id === manual.id)!.auto).toBe(false);
+    expect(await terminalText(call, auto.id)).toContain("Started automatically by auto-dispatch");
+    expect(await terminalText(call, manual.id)).not.toContain("Started automatically");
+  });
+
+  it("does not mark a ticket the user queued by hand when it later starts from the queue", async () => {
+    const { project, call, post, start, specs } = await boot({ tickets: { "01-a": ticketFile("01"), "02-b": ticketFile("02"), "03-c": ticketFile("03") } });
+    await start("f/01"); await start("f/02");
+    expect((await start("f/03")).status).toBe(202); // queued by hand
+    await post(`/api/projects/${project.id}/auto-dispatch`, { on: true });
+    const first = (await call("GET", "/api/agents")).json[0];
+    await post(`/api/agents/${first.id}/stop`, {});
+    await expect.poll(() => specs.length).toBe(3);
+    const third = ((await call("GET", "/api/agents")).json as any[]).find((x) => x.ticketKey === "03")!;
+    expect(third.auto).toBe(false);
+  });
+});

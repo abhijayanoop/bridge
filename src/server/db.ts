@@ -10,7 +10,7 @@ import type { Connection } from "./connections.ts";
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
-export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; analyst?: boolean; activity?: string | null; avatarState?: AvatarState }
+export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; analyst?: boolean; /** Started by the auto-dispatcher rather than a click. */ auto?: boolean; activity?: string | null; avatarState?: AvatarState }
 export type InboxKind = "question" | "access" | "plan" | "merge" | "retro";
 export interface InboxItem {
   id: string; agentId: string; projectId: string; kind: InboxKind;
@@ -73,13 +73,13 @@ export function openStore(dataDir: string) {
     db.exec(`ALTER TABLE projects ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE}'`);
   }
   const agentCols = (db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]).map((c) => c.name);
-  for (const c of ["ticket_id", "ticket_key", "ticket_title", "shape", "color", "lead", "analyst", "activity"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
+  for (const c of ["ticket_id", "ticket_key", "ticket_title", "shape", "color", "lead", "analyst", "auto", "activity"]) if (!agentCols.includes(c)) db.exec(`ALTER TABLE agents ADD COLUMN ${c} TEXT`);
   db.prepare("INSERT OR IGNORE INTO workspaces (id, name) VALUES (?, ?)").run(DEFAULT_WORKSPACE, "Default");
   const listProjects = () =>
     db.prepare("SELECT id, name, path, workspace_id AS workspaceId FROM projects ORDER BY rowid").all() as unknown as Project[];
   const listAgents = (): AgentRow[] => {
-    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, analyst, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead" | "analyst"> & { lead: number | string | null; analyst: number | string | null })[];
-    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, analyst: Number(r.analyst) === 1, avatarState: avatarState(r.status, r.activity) }));
+    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, analyst, auto, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead" | "analyst" | "auto"> & { lead: number | string | null; analyst: number | string | null; auto: number | string | null })[];
+    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, analyst: Number(r.analyst) === 1, auto: Number(r.auto) === 1, avatarState: avatarState(r.status, r.activity) }));
   };
   return {
     addProject(p: Omit<Project, "workspaceId"> & { workspaceId?: string }) {
@@ -110,8 +110,8 @@ export function openStore(dataDir: string) {
       db.prepare("DELETE FROM settings WHERE key = ?").run(key);
     },
     addAgent(a: AgentRow) {
-      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, analyst, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.analyst ? 1 : 0, a.activity ?? null);
+      db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, analyst, auto, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.analyst ? 1 : 0, a.auto ? 1 : 0, a.activity ?? null);
     },
     /** Sets the status; activity is kept only while working. */
     setStatus(id: string, status: AgentStatus, activity?: string | null) {

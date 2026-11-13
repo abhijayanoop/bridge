@@ -31,6 +31,8 @@ export const MAX_CAP = 3;
 const RATE_LIMIT_TEXT = /usage limit reached|(?:5-hour|weekly|session|rate) limit reached|hit your (?:\w+ )?limit/i;
 
 interface Queued { id: string; projectId: string; name: string; ticketId: string; ticketKey: string; ticketTitle: string;
+  /** Queued by the auto-dispatcher, not by a click. */
+  auto?: boolean;
   /** Why starting it failed (e.g. the clone). It stays queued and is retried when the user resumes. */
   error?: string }
 
@@ -272,8 +274,8 @@ export async function startDaemon(opts: DaemonOptions) {
   const dispatched = (projectId: string, ticketId: string) =>
     store.agents().some((a) => a.projectId === projectId && a.ticketId === ticketId && (a.status !== "done" || reviewStage.busy(a.id))) ||
     queue.some((q) => q.projectId === projectId && q.ticketId === ticketId);
-  const toQueued = (project: Project, ticket: Ticket, name: string): Queued =>
-    ({ id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title });
+  const toQueued = (project: Project, ticket: Ticket, name: string, auto = false): Queued =>
+    ({ id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title, auto });
   /**
    * Queues every ready, unblocked ticket of a project with auto-dispatch on, exactly as a manual Start click would.
    * Idempotent: a ticket already dispatched (running, queued, or queued-with-error from a failed attempt) is skipped.
@@ -283,7 +285,7 @@ export async function startDaemon(opts: DaemonOptions) {
       if (!autoDispatchOn(project.id)) continue;
       for (const ticket of readTickets(project.path, project.id)) {
         if (ticket.status !== "ready-for-agent" || ticket.blocked || held(project.id, ticket) || dispatched(project.id, ticket.id)) continue;
-        queue.push(toQueued(project, ticket, ticket.title));
+        queue.push(toQueued(project, ticket, ticket.title, true));
       }
     }
   }
@@ -296,7 +298,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const { project, ticket } = ticketOf(q);
       if (!project || !ticket) { queue.splice(i, 1); continue; }
       if (ticket.blocked || q.error || held(project.id, ticket)) { i++; continue; }
-      const r = spawn(project, q.name, ticket, false);
+      const r = spawn(project, q.name, ticket, false, undefined, false, q.auto);
       if (r.code === 201) queue.splice(i, 1);
       else { q.error = String((r.body as { error?: string }).error ?? "could not start"); i++; }
     }
@@ -306,11 +308,11 @@ export async function startDaemon(opts: DaemonOptions) {
   const analystDir = (agentId: string) => { const d = join(opts.dataDir, "analyst", agentId); mkdirSync(d, { recursive: true }); return d; };
 
   /** Creates the agent (and its clone, for a ticket) and starts it. */
-  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string, analyst = false): { code: number; body: unknown } => {
+  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string, analyst = false, auto = false): { code: number; body: unknown } => {
     const projectId = project.id;
     const look = ticket ? features.list(projectId).find((f) => f.slug === ticket.feature)?.looks[ticket.key] : undefined;
     const identity = analyst ? { shape: "cloud" as const, color: "#FF9500" } : look ?? pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
-    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead, analyst };
+    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead, analyst, auto };
     let workspace: Workspace | null = null;
     if (ticket) {
       try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
@@ -327,6 +329,8 @@ export async function startDaemon(opts: DaemonOptions) {
       // Kept so the next launch finds this clone again.
       store.setSetting(`agentRun:${agent.id}`, JSON.stringify({ cwd: workspace.path, branch: workspace.branch, base: workspace.base }));
     }
+    // Shown at the top of the terminal when it replays, so an automatic start can be told from a click afterwards.
+    if (auto) store.addEvent(agent.id, { type: "output", data: "[Bridge] Started automatically by auto-dispatch.\r\n" });
     launch(agent, cwd, task, workspace?.env, !!workspace);
     return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
   };
