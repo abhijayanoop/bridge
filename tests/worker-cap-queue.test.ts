@@ -332,8 +332,8 @@ describe("auto-dispatch toggle and provenance", () => {
     await expect.poll(() => specs.length).toBe(2);
     const agents = (await call("GET", "/api/agents")).json as any[];
     const auto = agents.find((x) => x.ticketKey === "01")!;
-    expect(auto.auto).toBe(true);
-    expect(agents.find((x) => x.id === manual.id)!.auto).toBe(false);
+    expect(auto.autoStarted).toBe(true);
+    expect(agents.find((x) => x.id === manual.id)!.autoStarted).toBe(false);
     expect(await terminalText(call, auto.id)).toContain("Started automatically by auto-dispatch");
     expect(await terminalText(call, manual.id)).not.toContain("Started automatically");
   });
@@ -347,6 +347,6 @@ describe("auto-dispatch toggle and provenance", () => {
     await post(`/api/agents/${first.id}/stop`, {});
     await expect.poll(() => specs.length).toBe(3);
     const third = ((await call("GET", "/api/agents")).json as any[]).find((x) => x.ticketKey === "03")!;
-    expect(third.auto).toBe(false);
+    expect(third.autoStarted).toBe(false);
   });
 });

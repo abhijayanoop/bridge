@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { AgentsScreen, AutoChip, type AgentInfo } from "./agents.tsx";
+import { useAutoDispatch } from "./use-auto-dispatch.ts";
 import { CountBadge, InboxScreen, useInbox } from "./inbox.tsx";
 import { PlanScreen } from "./plan.tsx";
 import { AnalystScreen } from "./analyst.tsx";
@@ -126,7 +127,7 @@ function QuitButton() {
   );
 }
 
-function TopBar({ project, section, limits, inbox, autoDispatch, onAutoDispatch, onCap, onResume, onPalette }: { onPalette: () => void; inbox: number; project?: Project; section: string; limits: Limits; autoDispatch: boolean; onAutoDispatch: (on: boolean) => void; onCap: (cap: number) => void; onResume: () => void }) {
+function TopBar({ project, section, limits, inbox, autoDispatch, onCap, onResume, onPalette }: { onPalette: () => void; inbox: number; project?: Project; section: string; limits: Limits; autoDispatch: ReturnType<typeof useAutoDispatch>; onCap: (cap: number) => void; onResume: () => void }) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-3 border-b border-line bg-bg px-5 py-2 text-[13px]">
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
@@ -156,13 +157,14 @@ function TopBar({ project, section, limits, inbox, autoDispatch, onAutoDispatch,
         </select>
         <span className="text-fg-3">workers</span>
       </span>
-      <button type="button" role="switch" aria-checked={autoDispatch} disabled={!project} onClick={() => onAutoDispatch(!autoDispatch)} title="Start ready tickets automatically for this project"
+      {autoDispatch.error && <span role="alert" className="inline-flex h-8 items-center rounded-lg border border-[#b45309] px-2.5 text-[#fbbf24]">{autoDispatch.error}</span>}
+      <button type="button" role="switch" aria-checked={autoDispatch.on} disabled={!project} onClick={() => autoDispatch.set(!autoDispatch.on)} title="Start ready tickets automatically for this project"
         className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5 hover:bg-surface disabled:opacity-40">
         <span className="text-fg-3">Auto-dispatch</span>
-        <span aria-hidden="true" className={`relative h-4 w-7 rounded-full transition-colors ${autoDispatch ? "bg-fg" : "bg-track"}`}>
-          <span className={`absolute top-0.5 size-3 rounded-full transition-all ${autoDispatch ? "left-3.5 bg-bg" : "left-0.5 bg-fg-2"}`} />
+        <span aria-hidden="true" className={`relative h-4 w-7 rounded-full transition-colors ${autoDispatch.on ? "bg-fg" : "bg-track"}`}>
+          <span className={`absolute top-0.5 size-3 rounded-full transition-all ${autoDispatch.on ? "left-3.5 bg-bg" : "left-0.5 bg-fg-2"}`} />
         </span>
-        <span className="w-6 text-left font-semibold">{autoDispatch ? "On" : "Off"}</span>
+        <span className="w-6 text-left font-semibold">{autoDispatch.on ? "On" : "Off"}</span>
       </button>
       <button type="button" onClick={onPalette} aria-keyshortcuts="Control+K Meta+K" className="inline-flex h-8 items-center gap-2 rounded-lg border border-line px-2.5 text-fg-2 hover:bg-surface">Quick actions<kbd className="font-mono text-[11px] text-fg-3">Ctrl K</kbd></button>
       <QuitButton />
@@ -184,7 +186,7 @@ function TicketCard({ t, onMove, agent }: { t: Ticket; onMove: (id: string, c: C
   const open = t.blockers.filter((b) => !b.done);
   const state = t.blocked ? `Blocked by ${open.map((b) => b.key).join(", ")}` : t.status || "no status";
   return (
-    <article aria-label={`${t.key}, ${t.title}, ${t.agent ?? "unassigned"}, ${state}${agent?.auto ? ", started automatically" : ""}`}
+    <article aria-label={`${t.key}, ${t.title}, ${t.agent ?? "unassigned"}, ${state}${agent?.autoStarted ? ", started automatically" : ""}`}
       className={`flex flex-col gap-2.5 rounded-xl border border-line bg-surface p-3 ${t.blocked ? "opacity-80" : ""}`}>
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs font-medium text-fg-3">{t.key}</span>
@@ -209,7 +211,7 @@ function TicketCard({ t, onMove, agent }: { t: Ticket; onMove: (id: string, c: C
         {t.agent
           ? <>{agent
               ? <AgentAvatar shape={agent.shape ?? "circle"} color={agent.color ?? "#0A84FF"} state={agent.avatarState ?? "idle"} size={20} lead={agent.lead} name={agent.name} />
-              : <span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-track text-[10px] font-semibold">{t.agent[0]!.toUpperCase()}</span>}<span className="font-semibold">{t.agent}</span>{agent?.auto && <AutoChip />}</>
+              : <span aria-hidden="true" className="grid size-5 place-items-center rounded-full bg-track text-[10px] font-semibold">{t.agent[0]!.toUpperCase()}</span>}<span className="font-semibold">{t.agent}</span>{agent?.autoStarted && <AutoChip />}</>
           : <><span aria-hidden="true" className="size-5 rounded-full border-[1.5px] border-dashed border-white/25" /><span className="font-semibold text-fg-2">Unassigned</span></>}
         <span className={`min-w-0 truncate ${t.blocked ? "font-medium text-fg" : "text-fg-2"}`}>{state}</span>
       </div>
@@ -294,20 +296,7 @@ function App() {
     if (!projectId) { setSetupNeeded(false); return; }
     fetch(`/api/projects/${projectId}/setup`).then((r) => r.json()).then((s) => setSetupNeeded(s.needed === true)).catch(() => {});
   }, [projectId, setupTick]);
-  // Each project has its own switch: re-read it whenever the active project changes (and on load/reload).
-  const [autoDispatch, setAutoDispatch] = useState(false);
-  useEffect(() => {
-    setAutoDispatch(false);
-    if (!projectId) return;
-    let live = true;
-    fetch(`/api/projects/${projectId}/auto-dispatch`).then((r) => r.json()).then((s) => { if (live) setAutoDispatch(s.on === true); }).catch(() => {});
-    return () => { live = false; };
-  }, [projectId]);
-  const toggleAutoDispatch = (on: boolean) => {
-    if (!projectId) return;
-    fetch(`/api/projects/${projectId}/auto-dispatch`, { method: "POST", body: JSON.stringify({ on }) })
-      .then((r) => r.json()).then((s) => { if (typeof s.on === "boolean") setAutoDispatch(s.on); }).catch(() => {});
-  };
+  const autoDispatch = useAutoDispatch(projectId);
   const switchTo = (id: string) => { setActiveId(id); fetch(`/api/projects/${id}/select`, { method: "POST", body: "{}" }).catch(() => {}); };
   const post = (path: string, body: unknown) => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()).then(setLimits).catch(() => {});
   const runAction = async (action: string, context: string): Promise<string | null> => {
@@ -322,7 +311,7 @@ function App() {
       {palette && <CommandPalette sections={NAV} onGo={setSection} onRun={runAction} onClose={() => setPalette(false)} />}
       <Sidebar inbox={inbox.open} lead={agents.find((a) => a.lead) ?? agents[0]} project={project} projects={projects} onSwitch={switchTo} onAdd={() => setAdding(true)} section={section} onSelect={setSection} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar inbox={inbox.open} project={project} section={section} limits={limits} autoDispatch={autoDispatch} onAutoDispatch={toggleAutoDispatch} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} onPalette={() => setPalette(true)} />
+        <TopBar inbox={inbox.open} project={project} section={section} limits={limits} autoDispatch={autoDispatch} onCap={(cap) => post("/api/limits", { cap })} onResume={() => post("/api/limits/resume", {})} onPalette={() => setPalette(true)} />
         <main id="main" tabIndex={-1} aria-label={section} className="flex-1 overflow-auto p-5 outline-none">
           {adding && <NewProjectDialog onClose={() => setAdding(false)} onOpened={() => setSetupTick((n) => n + 1)} />}
           {project && setupNeeded ? <FirstRunSetup projectId={project.id} projectName={project.name} onDone={() => setSetupTick((n) => n + 1)} /> : section === "Board" ? <Board project={project} agents={agents} /> : section === "Agents" ? <AgentsScreen projectId={project?.id} agents={agents} pulls={pulls} /> : section === "Inbox" ? <InboxScreen agents={agents} items={inbox.items} reload={inbox.reload} /> : section === "Review" ? <ReviewScreen pulls={pulls} reviews={reviews} projectId={project?.id} /> : section === "Plan" ? <PlanScreen projectId={project?.id} /> : section === "Analyst" ? <AnalystScreen projectId={project?.id} /> : (

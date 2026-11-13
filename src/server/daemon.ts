@@ -30,9 +30,11 @@ export const MAX_CAP = 3;
 /** What an agent's terminal prints when the plan's usage limit is hit. Narrow on purpose: code that merely mentions rate limits must not pause the queue. */
 const RATE_LIMIT_TEXT = /usage limit reached|(?:5-hour|weekly|session|rate) limit reached|hit your (?:\w+ )?limit/i;
 
+/** `leadPrompt` is the task for an agent with no ticket (lead, retro, quick action, analyst). */
+interface SpawnOptions { lead?: boolean; leadPrompt?: string; analyst?: boolean; autoStarted?: boolean }
 interface Queued { id: string; projectId: string; name: string; ticketId: string; ticketKey: string; ticketTitle: string;
   /** Queued by the auto-dispatcher, not by a click. */
-  auto?: boolean;
+  autoStarted?: boolean;
   /** Why starting it failed (e.g. the clone). It stays queued and is retried when the user resumes. */
   error?: string }
 
@@ -274,8 +276,8 @@ export async function startDaemon(opts: DaemonOptions) {
   const dispatched = (projectId: string, ticketId: string) =>
     store.agents().some((a) => a.projectId === projectId && a.ticketId === ticketId && (a.status !== "done" || reviewStage.busy(a.id))) ||
     queue.some((q) => q.projectId === projectId && q.ticketId === ticketId);
-  const toQueued = (project: Project, ticket: Ticket, name: string, auto = false): Queued =>
-    ({ id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title, auto });
+  const toQueued = (project: Project, ticket: Ticket, name: string, autoStarted = false): Queued =>
+    ({ id: randomUUID(), projectId: project.id, name, ticketId: ticket.id, ticketKey: ticket.key, ticketTitle: ticket.title, autoStarted });
   /**
    * Queues every ready, unblocked ticket of a project with auto-dispatch on, exactly as a manual Start click would.
    * Idempotent: a ticket already dispatched (running, queued, or queued-with-error from a failed attempt) is skipped.
@@ -298,7 +300,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const { project, ticket } = ticketOf(q);
       if (!project || !ticket) { queue.splice(i, 1); continue; }
       if (ticket.blocked || q.error || held(project.id, ticket)) { i++; continue; }
-      const r = spawn(project, q.name, ticket, false, undefined, false, q.auto);
+      const r = spawn(project, q.name, ticket, { autoStarted: q.autoStarted });
       if (r.code === 201) queue.splice(i, 1);
       else { q.error = String((r.body as { error?: string }).error ?? "could not start"); i++; }
     }
@@ -308,11 +310,11 @@ export async function startDaemon(opts: DaemonOptions) {
   const analystDir = (agentId: string) => { const d = join(opts.dataDir, "analyst", agentId); mkdirSync(d, { recursive: true }); return d; };
 
   /** Creates the agent (and its clone, for a ticket) and starts it. */
-  const spawn = (project: Project, name: string, ticket: Ticket | undefined, lead: boolean, leadPrompt?: string, analyst = false, auto = false): { code: number; body: unknown } => {
+  const spawn = (project: Project, name: string, ticket: Ticket | undefined, { lead = false, leadPrompt, analyst = false, autoStarted = false }: SpawnOptions = {}): { code: number; body: unknown } => {
     const projectId = project.id;
     const look = ticket ? features.list(projectId).find((f) => f.slug === ticket.feature)?.looks[ticket.key] : undefined;
     const identity = analyst ? { shape: "cloud" as const, color: "#FF9500" } : look ?? pickIdentity(store.agents().filter((a) => a.projectId === projectId && a.shape && a.color).map((a) => ({ shape: a.shape as any, color: a.color! })));
-    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead, analyst, auto };
+    const agent: AgentRow = { id: randomUUID(), projectId, name, status: "idle", ticketId: ticket?.id ?? null, ticketKey: ticket?.key ?? null, ticketTitle: ticket?.title ?? null, ...identity, lead, analyst, autoStarted };
     let workspace: Workspace | null = null;
     if (ticket) {
       try { workspace = workspaces.prepare({ agentId: agent.id, projectPath: project.path, ticketFile: ticket.file, ticketKey: ticket.key }); }
@@ -330,7 +332,7 @@ export async function startDaemon(opts: DaemonOptions) {
       store.setSetting(`agentRun:${agent.id}`, JSON.stringify({ cwd: workspace.path, branch: workspace.branch, base: workspace.base }));
     }
     // Shown at the top of the terminal when it replays, so an automatic start can be told from a click afterwards.
-    if (auto) store.addEvent(agent.id, { type: "output", data: "[Bridge] Started automatically by auto-dispatch.\r\n" });
+    if (autoStarted) store.addEvent(agent.id, { type: "output", data: "[Bridge] Started automatically by auto-dispatch.\r\n" });
     launch(agent, cwd, task, workspace?.env, !!workspace);
     return { code: 201, body: { ...store.agent(agent.id), workspace: { path: cwd, branch: workspace?.branch ?? null, mode } } };
   };
@@ -402,7 +404,7 @@ export async function startDaemon(opts: DaemonOptions) {
   function retroDecided(item: { id: string; decision?: string | null }) {
     const f = store.features().find((x) => x.retroItemId === item.id);
     const project = f && store.projects().find((p) => p.id === f.projectId);
-    if (f && project && item.decision === "approve") spawn(project, "Retro", undefined, false, retroTask(f));
+    if (f && project && item.decision === "approve") spawn(project, "Retro", undefined, { leadPrompt: retroTask(f) });
   }
 
   /** The planning tools of the lead agent of a feature; undefined for every other agent. */
@@ -689,7 +691,7 @@ export async function startDaemon(opts: DaemonOptions) {
         limitsChanged();
         return send(res, 202, { queued: true, id: entry.id, position: queue.length });
       }
-      const r = spawn(project, name, ticket, lead);
+      const r = spawn(project, name, ticket, { lead });
       return send(res, r.code, r.body);
     }
     const fm = path.match(/^\/api\/projects\/([^/]+)\/features$/);
@@ -701,7 +703,7 @@ export async function startDaemon(opts: DaemonOptions) {
         const { description } = await readJson(req);
         if (typeof description !== "string" || !description.trim()) return send(res, 400, { error: "describe the feature" });
         const f = features.create({ id: randomUUID(), projectId: project.id, description: description.trim(), leadAgentId: null });
-        const r = spawn(project, "Lead", undefined, true, leadTask(f));
+        const r = spawn(project, "Lead", undefined, { lead: true, leadPrompt: leadTask(f) });
         if (r.code !== 201) return send(res, r.code, r.body);
         const withLead = features.update({ ...f, leadAgentId: (r.body as { id: string }).id });
         broadcast({ type: "feature", feature: featureView(project, withLead) });
@@ -722,7 +724,7 @@ export async function startDaemon(opts: DaemonOptions) {
       const { action, context } = await readJson(req);
       const a = QUICK_ACTIONS.find((x) => x.id === action);
       if (!a) return send(res, 400, { error: "unknown action" });
-      const r = spawn(project, a.label, undefined, false, quickActionTask(a, typeof context === "string" ? context : ""));
+      const r = spawn(project, a.label, undefined, { leadPrompt: quickActionTask(a, typeof context === "string" ? context : "") });
       return send(res, r.code, r.body);
     }
     const cm = path.match(/^\/api\/projects\/([^/]+)\/connections$/);
@@ -791,7 +793,7 @@ export async function startDaemon(opts: DaemonOptions) {
         if (live) return send(res, 409, { error: "An Analyst is already running for this project" });
         const { question } = await readJson(req);
         const ask = typeof question === "string" ? question : "";
-        const r = spawn(project, "Analyst", undefined, false, analystTask(ask), true);
+        const r = spawn(project, "Analyst", undefined, { leadPrompt: analystTask(ask), analyst: true });
         if (r.code === 201) store.setSetting(`analystAsk:${(r.body as { id: string }).id}`, ask);
         return send(res, r.code, mode === "local" && r.code === 201
           ? { ...(r.body as object), warning: "Local mode has no sandbox, so this Analyst shares your computer. Prefer running Bridge with Docker Sandboxes for real data." }

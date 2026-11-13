@@ -10,7 +10,7 @@ import type { Connection } from "./connections.ts";
 export interface Project { id: string; name: string; path: string; workspaceId: string }
 export interface Workspace { id: string; name: string; repos: Project[] }
 export const DEFAULT_WORKSPACE = "default";
-export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; analyst?: boolean; /** Started by the auto-dispatcher rather than a click. */ auto?: boolean; activity?: string | null; avatarState?: AvatarState }
+export interface AgentRow { id: string; projectId: string; name: string; status: AgentStatus; ticketId?: string | null; ticketKey?: string | null; ticketTitle?: string | null; shape?: string; color?: string; lead?: boolean; analyst?: boolean; /** Started by the auto-dispatcher rather than a click. */ autoStarted?: boolean; activity?: string | null; avatarState?: AvatarState }
 export type InboxKind = "question" | "access" | "plan" | "merge" | "retro";
 export interface InboxItem {
   id: string; agentId: string; projectId: string; kind: InboxKind;
@@ -78,8 +78,8 @@ export function openStore(dataDir: string) {
   const listProjects = () =>
     db.prepare("SELECT id, name, path, workspace_id AS workspaceId FROM projects ORDER BY rowid").all() as unknown as Project[];
   const listAgents = (): AgentRow[] => {
-    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, analyst, auto, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead" | "analyst" | "auto"> & { lead: number | string | null; analyst: number | string | null; auto: number | string | null })[];
-    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, analyst: Number(r.analyst) === 1, auto: Number(r.auto) === 1, avatarState: avatarState(r.status, r.activity) }));
+    const rows = db.prepare("SELECT id, project_id AS projectId, name, status, ticket_id AS ticketId, ticket_key AS ticketKey, ticket_title AS ticketTitle, shape, color, lead, analyst, auto AS autoStarted, activity FROM agents ORDER BY rowid").all() as unknown as (Omit<AgentRow, "lead" | "analyst" | "autoStarted"> & { lead: number | string | null; analyst: number | string | null; autoStarted: number | string | null })[];
+    return rows.map((r) => ({ ...r, lead: Number(r.lead) === 1, analyst: Number(r.analyst) === 1, autoStarted: Number(r.autoStarted) === 1, avatarState: avatarState(r.status, r.activity) }));
   };
   return {
     addProject(p: Omit<Project, "workspaceId"> & { workspaceId?: string }) {
@@ -111,7 +111,7 @@ export function openStore(dataDir: string) {
     },
     addAgent(a: AgentRow) {
       db.prepare("INSERT INTO agents (id, project_id, name, status, ticket_id, ticket_key, ticket_title, shape, color, lead, analyst, auto, activity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.analyst ? 1 : 0, a.auto ? 1 : 0, a.activity ?? null);
+        .run(a.id, a.projectId, a.name, a.status, a.ticketId ?? null, a.ticketKey ?? null, a.ticketTitle ?? null, a.shape ?? null, a.color ?? null, a.lead ? 1 : 0, a.analyst ? 1 : 0, a.autoStarted ? 1 : 0, a.activity ?? null);
     },
     /** Sets the status; activity is kept only while working. */
     setStatus(id: string, status: AgentStatus, activity?: string | null) {
